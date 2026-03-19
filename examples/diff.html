@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>배부름의 미분 시각화</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Pretendard', -apple-system, sans-serif;
+            background-color: #fcfcfc;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .header { text-align: center; margin-bottom: 20px; }
+        .main-container {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        .chart-wrapper {
+            flex: 1;
+            background: white;
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            min-width: 0;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .controls {
+            width: 100%;
+            max-width: 1200px;
+            margin-top: 25px;
+            background: #1a1a1a;
+            color: #fff;
+            padding: 20px;
+            border-radius: 15px;
+            display: flex;
+            justify-content: space-around;
+            font-size: 1.1rem;
+        }
+        .highlight { color: #ff8c00; font-weight: 800; }
+        .instruction { color: #888; font-size: 0.95rem; margin-bottom: 15px; }
+        button {
+            margin-top: 10px;
+            padding: 8px 20px;
+            cursor: pointer;
+            background: #ff8c00;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        button:hover { background: #e67e00; }
+        h2 { font-size: 1.2rem; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🍕 배부름의 경제학 (미분 이해하기)</h1>
+    <p class="instruction">왼쪽 그래프를 드래그해보세요. 한 입 더 먹을 때의 기분 변화가 오른쪽에 기록됩니다.</p>
+    <button onclick="resetTrace()">기록 초기화</button>
+</div>
+
+<div class="main-container">
+    <!-- 첫 번째 그래프: 전체 배부름 -->
+    <div class="chart-wrapper">
+        <h2 style="color: #3498db; text-align: center;">현재까지 느껴지는 <span style="text-decoration: underline;">배부름</span></h2>
+        <div class="chart-container" id="tuContainer">
+            <canvas id="tuChart"></canvas>
+        </div>
+    </div>
+
+    <!-- 두 번째 그래프: 추가 한 입의 느낌 (미분) -->
+    <div class="chart-wrapper">
+        <h2 style="color: #ff8c00; text-align: center;">지금 한 입 더 먹는다면? <br><small style="color: #666;">(얼마나 더 먹어야/게워내야 좋을까?)</small></h2>
+        <div class="chart-container">
+            <canvas id="muChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="controls">
+    <div>먹은 양(X): <span id="xVal" class="highlight">0.0</span> 접시</div>
+    <div>전체 배부름: <span id="tuVal" class="highlight">0.0</span> 점</div>
+    <div>한 입 더 먹을 때의 기분: <span id="muVal" class="highlight">0.0</span> 점</div>
+</div>
+
+<script>
+    const xMax = 20;
+    const themeColor = '#ff8c00'; // 미분값 테마색 (주황)
+    let muTraceData = [];
+
+    const f = (x) => -0.5 * Math.pow(x, 2) + 10 * x; // 배부름 함수
+    const df = (x) => -1 * x + 10;                 // 기분 변화 함수
+
+    // 축 설정 (0 지점 2px 강조)
+    const getAxisConfig = (yMin, yMax) => ({
+        x: {
+            type: 'linear', min: 0, max: xMax,
+            title: { display: true, text: '먹은 양 (접시)' },
+            grid: {
+                color: (ctx) => (ctx.tick.value === 0 ? '#000' : '#f0f0f0'),
+                lineWidth: (ctx) => (ctx.tick.value === 0 ? 2 : 1)
+            }
+        },
+        y: {
+            min: yMin, max: yMax,
+            title: { display: true, text: '기분/배부름 수치' },
+            grid: {
+                color: (ctx) => (ctx.tick.value === 0 ? '#000' : '#f0f0f0'),
+                lineWidth: (ctx) => (ctx.tick.value === 0 ? 2 : 1)
+            }
+        }
+    });
+
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        animation: { duration: 0 },
+        events: []
+    };
+
+    const tuChart = new Chart(document.getElementById('tuChart'), {
+        type: 'line',
+        data: {
+            datasets: [
+                { label: '배부름 곡선', data: Array.from({length: 101}, (_, i) => ({x: i/5, y: f(i/5)})), borderColor: '#3498db', borderWidth: 3, pointRadius: 0, fill: false },
+                { label: '현재 먹은 지점', data: [], backgroundColor: themeColor, pointRadius: 7, showLine: false },
+                { label: '추가 한 입의 느낌(기울기)', data: [], borderColor: themeColor, borderWidth: 2, borderDash: [5, 3], pointRadius: 0 }
+            ]
+        },
+        options: { ...commonOptions, scales: getAxisConfig(0, 55) }
+    });
+
+    const muChart = new Chart(document.getElementById('muChart'), {
+        type: 'line',
+        data: {
+            datasets: [
+                { label: '기분 변화 궤적', data: [], borderColor: themeColor, borderWidth: 3, pointRadius: 0, fill: false },
+                { label: '현재 추가 한 입의 느낌', data: [], backgroundColor: themeColor, pointRadius: 7, showLine: false }
+            ]
+        },
+        options: { ...commonOptions, scales: getAxisConfig(-12, 12) }
+    });
+
+    function updateCharts(x) {
+        x = Math.max(0, Math.min(xMax, x));
+        const y = f(x);
+        const slope = df(x);
+
+        // 하단 수치 텍스트 업데이트
+        document.getElementById('xVal').innerText = x.toFixed(1);
+        document.getElementById('tuVal').innerText = y.toFixed(1);
+        document.getElementById('muVal').innerText = (slope > 0 ? "맛있음(+" : "거북함(") + slope.toFixed(1) + ")";
+
+        // 왼쪽: 배부름 그래프 업데이트
+        tuChart.data.datasets[1].data = [{x: x, y: y}];
+        tuChart.data.datasets[2].data = [{x: x-3, y: y - slope*3}, {x: x+3, y: y + slope*3}];
+        tuChart.update('none');
+
+        // 오른쪽: 기분 변화(도함수) 흔적 기록
+        if (!muTraceData.some(p => Math.abs(p.x - x) < 0.1)) {
+            muTraceData.push({x: x, y: slope});
+            muTraceData.sort((a, b) => a.x - b.x);
+        }
+        muChart.data.datasets[0].data = muTraceData;
+        muChart.data.datasets[1].data = [{x: x, y: slope}];
+        muChart.update('none');
+    }
+
+    function resetTrace() {
+        muTraceData = [];
+        muChart.data.datasets[0].data = [];
+        muChart.update();
+    }
+
+    // 드래그/클릭 핸들링
+    const canvas = document.getElementById('tuChart');
+    let isDragging = false;
+
+    function handleEvent(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const offsetX = clientX - rect.left;
+        const xValue = tuChart.scales.x.getValueForPixel(offsetX);
+        if (xValue !== undefined) updateCharts(xValue);
+    }
+
+    canvas.addEventListener('mousedown', (e) => { isDragging = true; handleEvent(e); });
+    window.addEventListener('mousemove', (e) => { if (isDragging) handleEvent(e); });
+    window.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('touchstart', (e) => { isDragging = true; handleEvent(e.touches[0]); }, {passive: false});
+    window.addEventListener('touchmove', (e) => { if (isDragging) handleEvent(e.touches[0]); }, {passive: false});
+    window.addEventListener('touchend', () => isDragging = false);
+
+    // 초기값
+    updateCharts(0);
+</script>
+
+</body>
+</html>

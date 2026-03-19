@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개발 효율과 미분 시각화</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Pretendard', -apple-system, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .header { text-align: center; margin-bottom: 20px; }
+        .main-container {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        .chart-wrapper {
+            flex: 1;
+            background: white;
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            min-width: 0;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            cursor: crosshair;
+            user-select: none;
+        }
+        .controls {
+            width: 100%;
+            max-width: 1200px;
+            margin-top: 25px;
+            background: #1e272e;
+            color: #fff;
+            padding: 20px;
+            border-radius: 15px;
+            display: flex;
+            justify-content: space-around;
+            font-size: 1.1rem;
+        }
+        .highlight { color: #ff5e57; font-weight: 800; }
+        .instruction { color: #57606f; font-size: 0.95rem; margin-bottom: 15px; }
+        button {
+            margin-top: 10px;
+            padding: 8px 20px;
+            cursor: pointer;
+            background: #ffa801;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        h2 { font-size: 1.2rem; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>👨‍💻 일하는 시간 vs 버그 발생량</h1>
+    <p class="instruction">왼쪽 그래프를 드래그해보세요. <b>기울기가 0이 되는 '퇴근 적기'</b>가 언제인지 알 수 있습니다.</p>
+    <button onclick="resetTrace()">업무 흔적 초기화</button>
+</div>
+
+<div class="main-container">
+    <!-- 왼쪽: 전체 버그 수 -->
+    <div class="chart-wrapper">
+        <h2 style="color: #05c46b; text-align: center;">내 소스코드의 <span style="text-decoration: underline;">전체 버그 수</span></h2>
+        <div class="chart-container" id="tuContainer">
+            <canvas id="tuChart"></canvas>
+        </div>
+    </div>
+
+    <!-- 오른쪽: 시간당 버그 증감 (미분) -->
+    <div class="chart-wrapper">
+        <h2 style="color: #ff5e57; text-align: center;">지금 1시간 더 일하면? <br><small style="color: #666;">(버그 생산 속도)</small></h2>
+        <div class="chart-container">
+            <canvas id="muChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="controls">
+    <div>일한 시간: <span id="xVal" class="highlight">0.0</span> 시간</div>
+    <div>남은 버그: <span id="tuVal" class="highlight">0.0</span> 개</div>
+    <div>버그 생성 속도: <span id="muVal" class="highlight">0.0</span></div>
+    <div id="statusMessage" style="font-weight: bold;"></div>
+</div>
+
+<script>
+    const xMax = 16;
+    const bestX = 8; // 8시간이 버그가 제일 적은 골든 타임
+    const themeColor = '#ff5e57'; // 미분값 테마색 (빨간색 - 경고)
+    let traceData = [];
+
+    // f(x) = 0.5 * (x - 8)^2 + 10  (8시간일 때 버그 10개로 최소)
+    const f = (x) => 0.5 * Math.pow(x - bestX, 2) + 10; 
+    const df = (x) => x - bestX; // 미분값: f'(x) = x - 8
+
+    const getAxisConfig = (yMin, yMax, xTitle) => ({
+        x: {
+            type: 'linear', min: 0, max: xMax,
+            title: { display: true, text: xTitle },
+            grid: {
+                color: (ctx) => (ctx.tick.value === 0 ? '#000' : '#eee'),
+                lineWidth: (ctx) => (ctx.tick.value === 0 ? 2 : 1)
+            }
+        },
+        y: {
+            min: yMin, max: yMax,
+            grid: {
+                color: (ctx) => (ctx.tick.value === 0 ? '#000' : '#eee'),
+                lineWidth: (ctx) => (ctx.tick.value === 0 ? 2 : 1)
+            }
+        }
+    });
+
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        animation: { duration: 0 },
+        events: []
+    };
+
+    const tuChart = new Chart(document.getElementById('tuChart'), {
+        type: 'line',
+        data: {
+            datasets: [
+                { label: 'Bugs', data: Array.from({length: 81}, (_, i) => ({x: i/5, y: f(i/5)})), borderColor: '#05c46b', borderWidth: 3, pointRadius: 0, fill: false },
+                { label: 'Now', data: [], backgroundColor: themeColor, pointRadius: 8, showLine: false },
+                { label: 'Tangent', data: [], borderColor: themeColor, borderWidth: 2, borderDash: [5, 3], pointRadius: 0 }
+            ]
+        },
+        options: { ...commonOptions, scales: getAxisConfig(0, 50, '일한 시간 (h)') }
+    });
+
+    const muChart = new Chart(document.getElementById('muChart'), {
+        type: 'line',
+        data: {
+            datasets: [
+                { label: 'Trace', data: [], borderColor: themeColor, borderWidth: 3, pointRadius: 0, fill: false },
+                { label: 'Now Gradient', data: [], backgroundColor: themeColor, pointRadius: 8, showLine: false }
+            ]
+        },
+        options: { ...commonOptions, scales: getAxisConfig(-10, 10, '일한 시간 (h)') }
+    });
+
+    function updateCharts(x) {
+        x = Math.max(0, Math.min(xMax, x));
+        const y = f(x);
+        const gradient = df(x);
+
+        document.getElementById('xVal').innerText = x.toFixed(1);
+        document.getElementById('tuVal').innerText = y.toFixed(0);
+        document.getElementById('muVal').innerText = (gradient > 0 ? "+" : "") + gradient.toFixed(1);
+        
+        const msgEl = document.getElementById('statusMessage');
+        if (gradient < -1) {
+            msgEl.innerText = "🚀 몰입 중! 버그가 빠르게 사라집니다.";
+            msgEl.style.color = "#0fbcf9";
+        } else if (Math.abs(gradient) <= 1) {
+            msgEl.innerText = "⚠️ 집중력 한계! 곧 퇴근해야 합니다.";
+            msgEl.style.color = "#ffa801";
+        } else {
+            msgEl.innerText = "🚨 번아웃! 일할수록 버그가 생성됩니다!";
+            msgEl.style.color = "#ff5e57";
+        }
+
+        tuChart.data.datasets[1].data = [{x: x, y: y}];
+        tuChart.data.datasets[2].data = [{x: x-3, y: y - gradient*3}, {x: x+3, y: y + gradient*3}];
+        tuChart.update('none');
+
+        if (!traceData.some(p => Math.abs(p.x - x) < 0.1)) {
+            traceData.push({x: x, y: gradient});
+            traceData.sort((a, b) => a.x - b.x);
+        }
+        muChart.data.datasets[0].data = traceData;
+        muChart.data.datasets[1].data = [{x: x, y: gradient}];
+        muChart.update('none');
+    }
+
+    function resetTrace() {
+        traceData = [];
+        muChart.data.datasets[0].data = [];
+        muChart.update();
+    }
+
+    const canvas = document.getElementById('tuChart');
+    let isDragging = false;
+
+    function handleEvent(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const offsetX = clientX - rect.left;
+        const xValue = tuChart.scales.x.getValueForPixel(offsetX);
+        if (xValue !== undefined) updateCharts(xValue);
+    }
+
+    canvas.addEventListener('mousedown', (e) => { isDragging = true; handleEvent(e); });
+    window.addEventListener('mousemove', (e) => { if (isDragging) handleEvent(e); });
+    window.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('touchstart', (e) => { isDragging = true; handleEvent(e.touches[0]); }, {passive: false});
+    window.addEventListener('touchmove', (e) => { if (isDragging) handleEvent(e.touches[0]); }, {passive: false});
+    window.addEventListener('touchend', () => isDragging = false);
+
+    updateCharts(2);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Manifold Folding - ReLU & Reset Feature</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; font-family: 'Pretendard', sans-serif; background: #000; color: white; overflow: hidden; }
+        
+        #ui-panel { 
+            position: absolute; top: 0; left: 0; width: 320px; height: 100vh;
+            background: rgba(15, 15, 15, 0.95); padding: 25px; border-right: 1px solid #333;
+            z-index: 100; transition: transform 0.3s ease; overflow-y: auto; box-sizing: border-box;
+        }
+        #ui-panel.hidden { transform: translateX(-100%); }
+
+        #toggle-btn {
+            position: absolute; top: 20px; left: 340px; z-index: 110;
+            background: #1a73e8; color: white; border: none; padding: 10px 15px;
+            border-radius: 6px; cursor: pointer; font-weight: bold; transition: left 0.3s ease;
+        }
+        #ui-panel.hidden + #toggle-btn { left: 20px; }
+
+        .preset-group { display: flex; gap: 10px; margin-bottom: 25px; }
+        .preset-btn { 
+            flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; 
+            background: #222; color: #fff; cursor: pointer; font-size: 11px; font-weight: bold;
+        }
+        .preset-btn:hover { background: #333; border-color: #1a73e8; }
+
+        .view-container { display: flex; width: 100vw; height: 100vh; }
+        .view { flex: 1; position: relative; border-left: 1px solid #222; }
+        .view-label { 
+            position: absolute; top: 20px; right: 20px; z-index: 10;
+            background: rgba(0, 0, 0, 0.7); padding: 6px 16px; 
+            border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: none;
+            border: 1px solid rgba(255,255,255,0.1); letter-spacing: 1px;
+        }
+        
+        h2 { color: #00ff88; font-size: 1.2em; margin-top: 0; margin-bottom: 20px; }
+        .control-group { margin-bottom: 18px; }
+        label { display: flex; justify-content: space-between; font-size: 11px; color: #aaa; margin-bottom: 6px; }
+        .val-num { color: #00ff88; font-family: monospace; font-size: 14px; font-weight: bold; }
+        
+        input[type=range] { width: 100%; cursor: pointer; accent-color: #1a73e8; }
+        select { width: 100%; padding: 10px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 6px; outline: none; }
+        
+        .unit-card { background: rgba(255,255,255,0.03); border: 1px solid #333; padding: 12px; border-radius: 10px; margin-bottom: 12px; }
+        .unit-title { font-size: 10px; font-weight: bold; margin-bottom: 10px; display: block; opacity: 0.6; }
+        .tip { font-size: 10px; color: #666; margin-top: 10px; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div id="ui-panel">
+    <h2>Manifold Fold-Lines</h2>
+    <p class="tip">* 슬라이더를 <b>더블클릭</b>하면 0으로 리셋됩니다.</p>
+    
+    <div class="preset-group">
+        <button class="preset-btn" onclick="applyPreset('default')">기본 레이아웃</button>
+        <button class="preset-btn" onclick="applyPreset('zero')">모두 0 (Reset)</button>
+    </div>
+
+    <div class="control-group">
+        <label>활성화 함수(σ)</label>
+        <select id="global-act">
+            <option value="relu" selected>ReLU (0 아래에서 접기)</option>
+            <option value="tanh">Tanh (S자 곡면 압축)</option>
+            <option value="sigmoid">Sigmoid (0~1 매핑)</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label>Output Bias <span class="val-num" id="val-out-bias">0.0</span></label>
+        <input type="range" id="out-bias" min="-5" max="5" step="0.1" value="0">
+    </div>
+
+    <div id="units-container"></div>
+</div>
+
+<button id="toggle-btn">설정창 접기</button>
+
+<div class="view-container">
+    <div class="view" id="canvas-left"><div class="view-label">STEP 2: LINEAR COMBINATION</div></div>
+    <div class="view" id="canvas-right"><div class="view-label" style="color:#ff5e57">STEP 3: RE-FOLDING (Final Layer)</div></div>
+</div>
+
+<script>
+/** 3D 엔진 설정 **/
+let sceneL, sceneR, cameraL, cameraR, rendererL, rendererR, controlsL, controlsR;
+let meshL, meshR, wireL, wireR, gridTexture;
+const gridSize = 60; 
+const worldSize = 14;
+
+const defaultParams = [
+    { wx: 1.5, wy: 0.8, b: 0.3, color: '#FF5252' },
+    { wx: -1.8, wy: 1.5, b: -0.5, color: '#4CAF50' },
+    { wx: 1.0, wy: -2.2, b: 1.2, color: '#7C4DFF' }
+];
+
+const acts = {
+    relu: x => Math.max(0, x),
+    sigmoid: x => 1 / (1 + Math.exp(-x * 2)),
+    tanh: x => Math.tanh(x)
+};
+
+function createFineGridTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 256, 256);
+    ctx.strokeStyle = '#bbbbbb'; // 섬세하고 연한 격자
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0, 0, 256, 256);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(14, 14);
+    return texture;
+}
+
+function init() {
+    gridTexture = createFineGridTexture();
+    sceneL = new THREE.Scene(); sceneR = new THREE.Scene();
+    const aspect = (window.innerWidth / 2) / window.innerHeight;
+    cameraL = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+    cameraL.position.set(15, 15, 15);
+    cameraR = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+    cameraR.position.copy(cameraL.position);
+
+    rendererL = new THREE.WebGLRenderer({ antialias: true });
+    rendererL.setSize(window.innerWidth / 2, window.innerHeight);
+    document.getElementById('canvas-left').appendChild(rendererL.domElement);
+    rendererR = new THREE.WebGLRenderer({ antialias: true });
+    rendererR.setSize(window.innerWidth / 2, window.innerHeight);
+    document.getElementById('canvas-right').appendChild(rendererR.domElement);
+
+    controlsL = new THREE.OrbitControls(cameraL, rendererL.domElement);
+    controlsR = new THREE.OrbitControls(cameraR, rendererR.domElement);
+    controlsL.addEventListener('change', () => { cameraR.position.copy(cameraL.position); cameraR.quaternion.copy(cameraL.quaternion); });
+    controlsR.addEventListener('change', () => { cameraL.position.copy(cameraR.position); cameraL.quaternion.copy(cameraR.quaternion); });
+
+    [sceneL, sceneR].forEach(s => {
+        s.add(new THREE.AmbientLight(0xffffff, 0.75));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.35); dirLight.position.set(10, 20, 10); s.add(dirLight);
+        s.add(new THREE.GridHelper(worldSize, 14, 0x222222, 0x111111));
+    });
+
+    const geometry = new THREE.PlaneBufferGeometry(worldSize, worldSize, gridSize, gridSize);
+    geometry.rotateX(-Math.PI / 2);
+
+    meshL = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ map: gridTexture, color: 0x4488ff, side: THREE.DoubleSide }));
+    meshR = new THREE.Mesh(geometry.clone(), new THREE.MeshPhongMaterial({ map: gridTexture, color: 0xff4444, side: THREE.DoubleSide }));
+    
+    // 접힌 선 강조용 와이어프레임
+    const wireMat = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.12 });
+    wireL = new THREE.Mesh(geometry, wireMat);
+    wireR = new THREE.Mesh(geometry.clone(), wireMat);
+
+    sceneL.add(meshL); sceneL.add(wireL);
+    sceneR.add(meshR); sceneR.add(wireR);
+
+    createUI();
+    updateSurface();
+    animate();
+}
+
+function createUI() {
+    const container = document.getElementById('units-container');
+    defaultParams.forEach((u, i) => {
+        const div = document.createElement('div');
+        div.className = 'unit-card'; div.style.borderLeft = `4px solid ${u.color}`;
+        div.innerHTML = `
+            <span class="unit-title" style="color:${u.color}">LAYER UNIT ${i+1}</span>
+            <div class="control-group"><label>Weight X <span class="val-num" id="v-wx${i}">${u.wx}</span></label><input type="range" id="wx${i}" min="-4" max="4" step="0.1" value="${u.wx}"></div>
+            <div class="control-group"><label>Weight Y <span class="val-num" id="v-wy${i}">${u.wy}</span></label><input type="range" id="wy${i}" min="-4" max="4" step="0.1" value="${u.wy}"></div>
+            <div class="control-group"><label>Bias <span class="val-num" id="v-b${i}">${u.b}</span></label><input type="range" id="b${i}" min="-4" max="4" step="0.1" value="${u.b}"></div>
+        `;
+        container.appendChild(div);
+    });
+
+    const panel = document.getElementById('ui-panel');
+    const btn = document.getElementById('toggle-btn');
+    btn.onclick = () => { panel.classList.toggle('hidden'); btn.innerText = panel.classList.contains('hidden') ? "설정창 열기" : "설정창 접기"; };
+
+    // 모든 슬라이더에 이벤트 연결 (더블클릭 리셋 포함)
+    document.querySelectorAll('input[type=range]').forEach(el => {
+        el.oninput = () => { syncValues(); updateSurface(); };
+        el.ondblclick = () => { el.value = 0; syncValues(); updateSurface(); };
+    });
+    document.getElementById('global-act').onchange = () => { syncValues(); updateSurface(); };
+}
+
+function syncValues() {
+    document.getElementById('val-out-bias').innerText = document.getElementById('out-bias').value;
+    for(let i=0; i<3; i++) {
+        document.getElementById(`v-wx${i}`).innerText = document.getElementById(`wx${i}`).value;
+        document.getElementById(`v-wy${i}`).innerText = document.getElementById(`wy${i}`).value;
+        document.getElementById(`v-b${i}`).innerText = document.getElementById(`b${i}`).value;
+    }
+}
+
+function applyPreset(type) {
+    if(type === 'zero') {
+        document.getElementById('out-bias').value = 0;
+        for(let i=0; i<3; i++) {
+            document.getElementById(`wx${i}`).value = 0; document.getElementById(`wy${i}`).value = 0; document.getElementById(`b${i}`).value = 0;
+        }
+    } else {
+        document.getElementById('out-bias').value = 0;
+        defaultParams.forEach((u, i) => {
+            document.getElementById(`wx${i}`).value = u.wx; document.getElementById(`wy${i}`).value = u.wy; document.getElementById(`b${i}`).value = u.b;
+        });
+    }
+    syncValues(); updateSurface();
+}
+
+function updateSurface() {
+    const actFn = acts[document.getElementById('global-act').value];
+    const outBias = parseFloat(document.getElementById('out-bias').value);
+    const p = [0, 1, 2].map(i => ({
+        wx: parseFloat(document.getElementById(`wx${i}`).value),
+        wy: parseFloat(document.getElementById(`wy${i}`).value),
+        b: parseFloat(document.getElementById(`b${i}`).value)
+    }));
+
+    const posL = meshL.geometry.attributes.position;
+    const posR = meshR.geometry.attributes.position;
+
+    for (let i = 0; i < posL.count; i++) {
+        const x = posL.getX(i), y = posL.getZ(i);
+        let zSum = p.reduce((acc, curr) => acc + actFn(curr.wx * x + curr.wy * y + curr.b), 0) + outBias;
+        let zFolded = actFn(zSum);
+        posL.setY(i, zSum); posR.setY(i, zFolded);
+    }
+    posL.needsUpdate = true; posR.needsUpdate = true;
+    wireL.geometry.attributes.position.copy(posL); wireL.geometry.attributes.position.needsUpdate = true;
+    wireR.geometry.attributes.position.copy(posR); wireR.geometry.attributes.position.needsUpdate = true;
+}
+
+function animate() { requestAnimationFrame(animate); rendererL.render(sceneL, cameraL); rendererR.render(sceneR, cameraR); }
+
+window.addEventListener('resize', () => {
+    const w = window.innerWidth / 2, h = window.innerHeight;
+    cameraL.aspect = cameraR.aspect = w / h; cameraL.updateProjectionMatrix(); cameraR.updateProjectionMatrix();
+    rendererL.setSize(w, h); rendererR.setSize(w, h);
+});
+
+init();
+</script>
+</body>
+</html>

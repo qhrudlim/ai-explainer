@@ -158,6 +158,7 @@ header {
 }
 
 .topic-card {
+    display: block;
     background-color: white;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
@@ -165,11 +166,15 @@ header {
     text-align: center;
     transition: all 0.3s ease;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
 }
 
 .topic-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     transform: translateY(-5px);
+    text-decoration: none;
 }
 
 .topic-card h3 {
