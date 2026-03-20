@@ -4,9 +4,13 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         e.preventDefault();
         const target = document.querySelector(this.getAttribute('href'));
         if (target) {
-            target.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
+            const header = document.querySelector('header');
+            const headerHeight = header ? header.offsetHeight : 0;
+            const targetPosition = target.getBoundingClientRect().top + window.scrollY - headerHeight;
+
+            window.scrollTo({
+                top: Math.max(targetPosition, 0),
+                behavior: 'smooth'
             });
         }
     });
