@@ -71,7 +71,7 @@
 
 <div class="header">
     <h1>🍕 배부름의 경제학 (미분 이해하기)</h1>
-    <p class="instruction">왼쪽 그래프를 드래그해보세요. 한 입 더 먹을 때의 기분 변화가 오른쪽에 기록됩니다.</p>
+    <p class="instruction">왼쪽 그래프를 드래그해보세요. 입력한 x값의 배부름 점들만 왼쪽에 쌓이고, 그 지점의 미분값이 오른쪽에 기록됩니다.</p>
     <button onclick="resetTrace()">기록 초기화</button>
 </div>
 
@@ -102,6 +102,7 @@
 <script>
     const xMax = 20;
     const themeColor = '#ff8c00'; // 미분값 테마색 (주황)
+    let tuTraceData = [];
     let muTraceData = [];
 
     const f = (x) => -0.5 * Math.pow(x, 2) + 10 * x; // 배부름 함수
@@ -139,9 +140,9 @@
         type: 'line',
         data: {
             datasets: [
-                { label: '배부름 곡선', data: Array.from({length: 101}, (_, i) => ({x: i/5, y: f(i/5)})), borderColor: '#3498db', borderWidth: 3, pointRadius: 0, fill: false },
-                { label: '현재 먹은 지점', data: [], backgroundColor: themeColor, pointRadius: 7, showLine: false },
-                { label: '추가 한 입의 느낌(기울기)', data: [], borderColor: themeColor, borderWidth: 2, borderDash: [5, 3], pointRadius: 0 }
+                { label: '탐색한 배부름 점', data: [], borderColor: '#3498db', borderWidth: 3, pointRadius: 2, pointHoverRadius: 2, fill: false, spanGaps: true, order: 3 },
+                { label: '현재 먹은 지점', data: [], backgroundColor: themeColor, pointRadius: 7, showLine: false, order: 1 },
+                { label: '추가 한 입의 느낌(기울기)', data: [], borderColor: themeColor, borderWidth: 2, pointRadius: 0, order: 2 }
             ]
         },
         options: { ...commonOptions, scales: getAxisConfig(0, 55) }
@@ -158,35 +159,55 @@
         options: { ...commonOptions, scales: getAxisConfig(-12, 12) }
     });
 
+    function setReadouts(x, y, slope) {
+        document.getElementById('xVal').innerText = x.toFixed(1);
+        document.getElementById('tuVal').innerText = y.toFixed(1);
+        document.getElementById('muVal').innerText = slope > 0
+            ? "맛있음(+" + slope.toFixed(1) + ")"
+            : slope < 0
+                ? "거북함(" + slope.toFixed(1) + ")"
+                : "변화 없음(0.0)";
+    }
+
+    function pushUniquePoint(traceData, point) {
+        if (!traceData.some(existingPoint => Math.abs(existingPoint.x - point.x) < 0.1)) {
+            traceData.push(point);
+            traceData.sort((a, b) => a.x - b.x);
+        }
+    }
+
     function updateCharts(x) {
         x = Math.max(0, Math.min(xMax, x));
         const y = f(x);
         const slope = df(x);
 
-        // 하단 수치 텍스트 업데이트
-        document.getElementById('xVal').innerText = x.toFixed(1);
-        document.getElementById('tuVal').innerText = y.toFixed(1);
-        document.getElementById('muVal').innerText = (slope > 0 ? "맛있음(+" : "거북함(") + slope.toFixed(1) + ")";
+        setReadouts(x, y, slope);
 
-        // 왼쪽: 배부름 그래프 업데이트
+        // 왼쪽: 사용자가 실제로 찍은 점들만 누적해서 보여준다.
+        pushUniquePoint(tuTraceData, {x: x, y: y});
+        tuChart.data.datasets[0].data = tuTraceData;
         tuChart.data.datasets[1].data = [{x: x, y: y}];
         tuChart.data.datasets[2].data = [{x: x-3, y: y - slope*3}, {x: x+3, y: y + slope*3}];
         tuChart.update('none');
 
         // 오른쪽: 기분 변화(도함수) 흔적 기록
-        if (!muTraceData.some(p => Math.abs(p.x - x) < 0.1)) {
-            muTraceData.push({x: x, y: slope});
-            muTraceData.sort((a, b) => a.x - b.x);
-        }
+        pushUniquePoint(muTraceData, {x: x, y: slope});
         muChart.data.datasets[0].data = muTraceData;
         muChart.data.datasets[1].data = [{x: x, y: slope}];
         muChart.update('none');
     }
 
     function resetTrace() {
+        tuTraceData = [];
         muTraceData = [];
+        tuChart.data.datasets[0].data = [];
+        tuChart.data.datasets[1].data = [];
+        tuChart.data.datasets[2].data = [];
         muChart.data.datasets[0].data = [];
+        muChart.data.datasets[1].data = [];
+        tuChart.update();
         muChart.update();
+        setReadouts(0, 0, 0);
     }
 
     // 드래그/클릭 핸들링
@@ -209,7 +230,7 @@
     window.addEventListener('touchend', () => isDragging = false);
 
     // 초기값
-    updateCharts(0);
+    setReadouts(0, 0, 0);
 </script>
 
 </body>
