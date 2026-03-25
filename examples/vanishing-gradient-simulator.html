@@ -212,6 +212,26 @@ select {
   .lpanel, .rpanel { border: none; border-top: 1px solid var(--border); }
   .speed-wrap { margin-left: 0; }
 }
+
+@media (max-width: 760px) {
+  .layout { grid-template-rows: auto minmax(420px, 58vh) auto; }
+  .lpanel, .rpanel { padding: 12px; }
+
+  /* Keep chart readable on narrow viewports: allow horizontal scroll instead of clipping. */
+  .rpanel .mcard { overflow-x: auto; }
+
+  #layer-chart {
+    min-width: 320px;
+    height: min(48vw, 220px);
+    min-height: 170px;
+  }
+
+  #delta-map {
+    min-width: 320px;
+    height: min(56vw, 260px);
+    min-height: 200px;
+  }
+}
 </style>
 </head>
 <body>
@@ -888,7 +908,8 @@ function drawNetwork() {
 function drawLayerChart() {
   const dpr = window.devicePixelRatio || 1;
   const W = layerChart.clientWidth || 240;
-  const H = 168;
+  const H = Math.max(140, layerChart.clientHeight || 168);
+  const fz = Math.max(12, Math.min(17, Math.floor(W / 20)));
   layerChart.width = W * dpr;
   layerChart.height = H * dpr;
   lctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -900,8 +921,8 @@ function drawLayerChart() {
 
   if (!lastStats || !lastStats.means.length) {
     lctx.fillStyle = '#6b7280';
-    lctx.font = '19px JetBrains Mono';
-    lctx.fillText('아직 데이터가 없습니다.', 10, 24);
+    lctx.font = `${fz}px JetBrains Mono`;
+    lctx.fillText('아직 데이터가 없습니다.', 10, Math.max(24, fz + 8));
     return;
   }
 
@@ -910,7 +931,7 @@ function drawLayerChart() {
   const vMax = Math.max(...vals, 0);
   const range = Math.max(1e-6, vMax - vMin);
 
-  const pad = { l: 34, r: 8, t: 10, b: 24 };
+  const pad = { l: Math.max(40, fz * 2.2), r: Math.max(12, fz), t: Math.max(18, fz + 4), b: Math.max(34, fz * 2.1) };
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
   const n = vals.length;
@@ -936,16 +957,21 @@ function drawLayerChart() {
   lctx.stroke();
 
   lctx.fillStyle = '#6b7280';
-  lctx.font = '19px JetBrains Mono';
+  lctx.font = `${fz}px JetBrains Mono`;
   lctx.textAlign = 'left';
-  lctx.fillText('log10(|δ|)', 4, 10);
-  lctx.fillText('Layer', W - 38, H - 8);
+  lctx.textBaseline = 'top';
+  lctx.fillText('log10(|δ|)', 6, 4);
+  lctx.textAlign = 'right';
+  lctx.textBaseline = 'bottom';
+  lctx.fillText('Layer', W - 6, H - 6);
+  lctx.textBaseline = 'alphabetic';
 }
 
 function drawDeltaMap() {
   const dpr = window.devicePixelRatio || 1;
   const W = deltaMap.clientWidth || 240;
-  const H = 204;
+  const H = Math.max(170, deltaMap.clientHeight || 204);
+  const fz = Math.max(12, Math.min(17, Math.floor(W / 20)));
   deltaMap.width = W * dpr;
   deltaMap.height = H * dpr;
   dctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -957,15 +983,15 @@ function drawDeltaMap() {
 
   if (!lastGrads || !lastGrads.deltas || !lastGrads.deltas.length) {
     dctx.fillStyle = '#6b7280';
-    dctx.font = '19px JetBrains Mono';
-    dctx.fillText('아직 데이터가 없습니다.', 10, 24);
+    dctx.font = `${fz}px JetBrains Mono`;
+    dctx.fillText('아직 데이터가 없습니다.', 10, Math.max(24, fz + 8));
     return;
   }
 
   const deltas = lastGrads.deltas;
   const rows = deltas.length;
   const cols = Math.max(...deltas.map(r => r.length));
-  const pad = { l: 32, r: 6, t: 12, b: 18 };
+  const pad = { l: Math.max(34, fz * 1.9), r: Math.max(10, fz * 0.9), t: Math.max(20, fz + 6), b: Math.max(30, fz * 1.8) };
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
   const cw = plotW / cols;
@@ -999,10 +1025,14 @@ function drawDeltaMap() {
   dctx.strokeRect(pad.l, pad.t, plotW, plotH);
 
   dctx.fillStyle = '#6b7280';
-  dctx.font = '19px JetBrains Mono';
+  dctx.font = `${fz}px JetBrains Mono`;
   dctx.textAlign = 'left';
-  dctx.fillText('층', 6, 10);
-  dctx.fillText('유닛', W - 28, H - 4);
+  dctx.textBaseline = 'top';
+  dctx.fillText('층', 6, 5);
+  dctx.textAlign = 'right';
+  dctx.textBaseline = 'bottom';
+  dctx.fillText('유닛', W - 6, H - 6);
+  dctx.textBaseline = 'alphabetic';
 }
 
 function render() {
