@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>탕수육으로 배우는 역전파와 연쇄법칙</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f8ff;
+    --surface: #ffffff;
+    --blue: #1a6fd4;
+    --blue-dark: #0d4fa0;
+    --blue-pale: #e8f1fd;
+    --red: #d93025;
+    --green: #1e8a5e;
+    --orange: #e07b00;
+    --text: #1a2233;
+    --muted: #6b7a99;
+    --border: #d0ddef;
+    --shadow: 0 2px 14px rgba(26,111,212,0.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 17px;
+    line-height: 1.65;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    text-align: center;
+    padding: 44px 24px 32px;
+    background: #fff;
+    border-bottom: 3px solid var(--blue);
+  }
+
+  h1 {
+    font-size: clamp(28px, 3.5vw, 48px);
+    font-weight: 900;
+    color: var(--text);
+    line-height: 1.15;
+  }
+  h1 span { color: var(--blue); }
+
+  .subtitle {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 17px;
+  }
+
+  /* ─── DIRECTION LEGEND ─── */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    padding: 16px 24px;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .legend-arrow {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .legend-arrow.fwd { background: var(--blue); }
+  .legend-arrow.bwd { background: var(--red); }
+
+  .legend-arrow.fwd::after {
+    content: '';
+    position: absolute;
+    right: -6px; top: 50%;
+    transform: translateY(-50%);
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-left: 9px solid var(--blue);
+  }
+
+  .legend-arrow.bwd::before {
+    content: '';
+    position: absolute;
+    left: -6px; top: 50%;
+    transform: translateY(-50%);
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-right: 9px solid var(--red);
+  }
+
+  /* ─── MAIN WRAP ─── */
+  .main-wrap {
+    padding: 36px 32px 64px;
+    overflow-x: auto;
+  }
+
+  /* ─── PIPELINE (가로 레이아웃) ─── */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    min-width: 900px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ─── 노드 ─── */
+  .node {
+    flex: 1;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 20px;
+    padding: 24px 22px;
+    box-shadow: var(--shadow);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .node:hover {
+    border-color: var(--blue);
+    box-shadow: 0 4px 24px rgba(26,111,212,0.15);
+  }
+
+  .node-top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 18px;
+  }
+
+  .node-emoji { font-size: 40px; margin-bottom: 8px; }
+  .node-title { font-size: 19px; font-weight: 700; }
+  .node-desc  { font-size: 14px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+  /* 값 표시 */
+  .val-box {
+    border-radius: 12px;
+    padding: 13px 16px;
+    border: 1.5px solid;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  .val-box.fwd { background: #eef5ff; border-color: #b3d0f5; }
+  .val-box.bwd { background: #fff2f1; border-color: #f5b8b3; }
+
+  .val-tag {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    margin-bottom: 5px;
+  }
+  .fwd .val-tag { color: var(--blue-dark); }
+  .bwd .val-tag { color: #b02a22; }
+
+  .val-num { font-size: 28px; font-weight: 900; }
+  .fwd .val-num { color: var(--blue); }
+  .bwd .val-num { color: var(--red); }
+
+  .val-desc { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  /* 기울기 설명 문장 */
+  .grad-sentence {
+    font-size: 15px;
+    font-weight: 500;
+    color: #7a1a14;
+    line-height: 1.6;
+    margin: 6px 0 2px;
+  }
+  .grad-sentence strong {
+    font-size: 18px;
+    color: var(--red);
+  }
+
+  /* 책임 강도 게이지 */
+  .responsibility-gauge {
+    margin-top: 10px;
+    background: rgba(217,48,37,0.1);
+    border-radius: 6px;
+    height: 10px;
+    overflow: hidden;
+  }
+  .responsibility-gauge-fill {
+    height: 100%;
+    border-radius: 6px;
+    background: var(--red);
+    transition: width 0.4s cubic-bezier(0.34,1.2,0.64,1), background 0.3s;
+  }
+  .responsibility-label {
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 6px;
+    color: #b02a22;
+  }
+
+  /* 순전파 기울기 선 SVG */
+  .fwd-viz {
+    margin-top: 10px;
+    width: 100%;
+    height: 64px;
+    overflow: visible;
+  }
+
+  /* 슬라이더 */
+  .slider-section {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1.5px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  /* 요리사 카드 — 슬라이더 자리 placeholder (높이만 맞춤) */
+  .slider-placeholder {
+    border-top-color: transparent;
+    min-height: 62px;
+  }
+
+  .slider-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 8px;
+    display: block;
+    text-align: center;
+  }
+
+  .slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  input[type=range] {
+    flex: 1;
+    min-width: 0;
+    -webkit-appearance: none;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--border);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--blue);
+    border: 3px solid #fff;
+    box-shadow: 0 2px 6px rgba(26,111,212,0.4);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+  .slider-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--blue);
+    width: 38px;
+    min-width: 38px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* ─── 프리셋 버튼 ─── */
+  .presets {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 24px;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .preset-btn {
+    padding: 8px 18px;
+    border-radius: 20px;
+    border: 2px solid var(--border);
+    background: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+    transition: all 0.18s;
+    color: var(--text);
+  }
+  .preset-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-pale); }
+  .preset-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .preset-btn.explode { border-color: #d93025; color: #d93025; }
+  .preset-btn.explode:hover, .preset-btn.explode.active { background: #d93025; color: #fff; }
+  .preset-btn.vanish  { border-color: #1e8a5e; color: #1e8a5e; }
+  .preset-btn.vanish:hover, .preset-btn.vanish.active  { background: #1e8a5e; color: #fff; }
+
+  .connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    flex-shrink: 0;
+    gap: 10px;
+  }
+
+  /* 순전파 화살표 → */
+  .arrow-fwd {
+    width: 100%;
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+  }
+  .arrow-fwd::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 50%;
+    transform: translateY(-50%);
+    width: 100%;
+    height: 4px;
+    background: var(--blue);
+    border-radius: 2px;
+  }
+  .arrow-fwd::after {
+    content: '';
+    position: absolute;
+    right: -2px; top: 50%;
+    transform: translateY(-50%);
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 12px solid var(--blue);
+  }
+
+  /* 역전파 화살표 ← */
+  .arrow-bwd {
+    width: 100%;
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+  }
+  .arrow-bwd::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 50%;
+    transform: translateY(-50%);
+    width: 100%;
+    height: 4px;
+    background: var(--red);
+    border-radius: 2px;
+    opacity: 0.85;
+  }
+  .arrow-bwd::after {
+    content: '';
+    position: absolute;
+    left: -2px; top: 50%;
+    transform: translateY(-50%);
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-right: 12px solid var(--red);
+    opacity: 0.85;
+  }
+
+  .arrow-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 2px 6px;
+    border-radius: 6px;
+    line-height: 1.3;
+  }
+  .arrow-label.fwd { color: var(--blue-dark); background: #eef5ff; }
+  .arrow-label.bwd { color: #b02a22; background: #fff2f1; }
+
+  /* ─── 요리사 action ─── */
+  .chef-action {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: #f0fff8;
+    border: 1.5px solid #b0dfc8;
+    border-radius: 10px;
+    font-size: 14px;
+    color: var(--green);
+    line-height: 1.7;
+  }
+  .chef-action strong { font-weight: 700; }
+
+  /* ─── 하단 요약 ─── */
+  .summary {
+    max-width: 1400px;
+    margin: 32px auto 0;
+    background: var(--surface);
+    border: 2px solid var(--blue);
+    border-radius: 20px;
+    padding: 28px 32px;
+    box-shadow: 0 4px 24px rgba(26,111,212,0.10);
+  }
+
+  .summary-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--blue-dark);
+    margin-bottom: 16px;
+  }
+
+  .meter-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
+  .meter-track {
+    height: 16px;
+    border-radius: 8px;
+    background: var(--border);
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 8px;
+    background: var(--blue);
+    transition: width 0.5s cubic-bezier(0.34,1.2,0.64,1), background 0.4s;
+  }
+  .meter-endpoints {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  .explain {
+    font-size: 17px;
+    line-height: 1.9;
+    color: #2a3a5c;
+    background: var(--blue-pale);
+    border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .explain strong { color: var(--blue-dark); font-weight: 700; }
+  .explain .red   { color: var(--red); font-weight: 700; }
+  .explain .green { color: var(--green); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>탕수육으로 배우는 <span>역전파와 연쇄법칙</span></h1>
+  <p class="subtitle">고객의 불만이 각 층을 거슬러 올라가며 책임이 전달되는 과정을 확인해보세요</p>
+</header>
+
+<!-- 방향 범례 -->
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-arrow fwd"></div>
+    <span style="color:var(--blue-dark)">순전파 — 눅눅함이 전달되는 방향 (요리사 → 고객)</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-arrow bwd"></div>
+    <span style="color:#b02a22">역전파 — 책임이 거슬러 오는 방향 (고객 → 요리사)</span>
+  </div>
+</div>
+
+<!-- 프리셋 -->
+<div class="presets">
+  <span style="font-size:14px;font-weight:700;color:var(--muted);align-self:center;">프리셋:</span>
+  <button class="preset-btn active" id="preset-normal" onclick="applyPreset('normal')">🍖 기본 (w=2.0)</button>
+  <button class="preset-btn explode" id="preset-explode" onclick="applyPreset('explode')">🔥 기울기 폭발 (w=10.0)</button>
+  <button class="preset-btn vanish"  id="preset-vanish"  onclick="applyPreset('vanish')">🌫️ 기울기 소실 (w=0.01)</button>
+</div>
+  <div class="pipeline">
+
+    <!-- ① 요리사 -->
+    <div class="node" id="node-chef">
+      <div class="node-top">
+        <div class="node-emoji">👨‍🍳</div>
+        <div class="node-title">요리사</div>
+        <div class="node-desc">튀기는 온도·횟수로<br>원초적 눅눅함 결정</div>
+      </div>
+      <div class="slider-section slider-placeholder"></div>
+      <div class="val-box fwd">
+        <div class="val-tag">▶ 요리사가 받은 기울기</div>
+        <div class="val-num" id="chef-fwd">—</div>
+        <div class="val-desc">= ∂L/∂x_c (최종 기울기)</div>
+        <svg class="fwd-viz" id="viz-chef" viewBox="0 0 160 64" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <!-- connector 1 -->
+    <div class="connector">
+      <div class="arrow-label fwd">눅눅함 →</div>
+      <div class="arrow-fwd"></div>
+      <div class="arrow-bwd"></div>
+      <div class="arrow-label bwd">← 책임</div>
+    </div>
+
+    <!-- ② 포장담당 -->
+    <div class="node">
+      <div class="node-top">
+        <div class="node-emoji">📦</div>
+        <div class="node-title">포장담당</div>
+        <div class="node-desc">포장이 눅눅함을<br>얼마나 키웠는가</div>
+      </div>
+      <div class="slider-section">
+        <span class="slider-label">📦 포장 기여 배율 (w₁)</span>
+        <div class="slider-wrap">
+          <input type="range" id="w2" min="0.01" max="10.0" step="0.01" value="2.0">
+          <span class="slider-val" id="w2-display">2.0×</span>
+        </div>
+      </div>
+      <div class="val-box fwd">
+        <div class="val-tag">▶ 요리사에 전달할 기울기</div>
+        <div class="val-num" id="packing-fwd">—</div>
+        <div class="val-desc">받은 기울기 × w₁</div>
+        <svg class="fwd-viz" id="viz-packing" viewBox="0 0 160 64" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <!-- connector 2 -->
+    <div class="connector">
+      <div class="arrow-label fwd">눅눅함 →</div>
+      <div class="arrow-fwd"></div>
+      <div class="arrow-bwd"></div>
+      <div class="arrow-label bwd">← 책임</div>
+    </div>
+
+    <!-- ③ 배달기사 -->
+    <div class="node">
+      <div class="node-top">
+        <div class="node-emoji">🛵</div>
+        <div class="node-title">배달기사</div>
+        <div class="node-desc">배달 중 눅눅함을<br>얼마나 키웠는가</div>
+      </div>
+      <div class="slider-section">
+        <span class="slider-label">🛵 배달 기여 배율 (w₂)</span>
+        <div class="slider-wrap">
+          <input type="range" id="w1" min="0.01" max="10.0" step="0.01" value="2.0">
+          <span class="slider-val" id="w1-display">2.0×</span>
+        </div>
+      </div>
+      <div class="val-box fwd">
+        <div class="val-tag">▶ 포장담당에 전달할 기울기</div>
+        <div class="val-num" id="delivery-fwd">—</div>
+        <div class="val-desc">고객 기울기(L) × w₂</div>
+        <svg class="fwd-viz" id="viz-delivery" viewBox="0 0 160 64" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <!-- connector 3 -->
+    <div class="connector">
+      <div class="arrow-label fwd">눅눅함 →</div>
+      <div class="arrow-fwd"></div>
+      <div class="arrow-bwd"></div>
+      <div class="arrow-label bwd">← 책임 시작</div>
+    </div>
+
+    <!-- ④ 나 (고객) -->
+    <div class="node">
+      <div class="node-top">
+        <div class="node-emoji">😤</div>
+        <div class="node-title">나 (고객)</div>
+        <div class="node-desc">눅눅함을 감지하고<br>항의 시작!</div>
+      </div>
+      <div class="slider-section">
+        <span class="slider-label">😤 출발 기울기 (∂Loss/∂L) 설정</span>
+        <div class="slider-wrap">
+          <input type="range" id="loss-val" min="-8.0" max="8.0" step="0.5" value="8.0">
+          <span class="slider-val" id="loss-val-display">8.0</span>
+        </div>
+      </div>
+      <div class="val-box fwd">
+        <div class="val-tag">▶ 역전파 출발 기울기</div>
+        <div class="val-num" id="loss-fwd">8.0</div>
+        <div class="val-desc">고객이 역전파로 전달하는 값</div>
+        <svg class="fwd-viz" id="viz-loss" viewBox="0 0 160 64" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+  </div><!-- /pipeline -->
+
+  <!-- 요약 -->
+  <div class="summary">
+    <div class="summary-title">📊 지금 상황 요약</div>
+    <div id="state-display" style="display:flex;align-items:center;gap:20px;padding:20px 24px;border-radius:14px;border:2px solid var(--border);margin-bottom:16px;transition:background 0.4s,border-color 0.4s;">
+      <div id="state-emoji" style="font-size:52px;flex-shrink:0;transition:all 0.3s;">😤</div>
+      <div>
+        <div id="state-label" style="font-size:22px;font-weight:900;transition:color 0.3s;"></div>
+        <div id="state-sub" style="font-size:16px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+    </div>
+    <div class="explain" id="explain-box">슬라이더를 조절해 보세요.</div>
+
+</div><!-- /main-wrap -->
+
+<script>
+  function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
+  function fmt(v) { return v.toFixed(2); }
+
+  // 눅눅함을 기울기 선분으로 표현
+  // val: 현재 값, maxVal: 시각화 기준 절대값(이 값 이상이면 거의 수직으로 포화)
+  // 값이 클수록 선이 가파르게 위쪽으로 기울어짐 (양수=오른쪽 위, 음수=오른쪽 아래)
+  function drawLine(svgId, val, maxVal) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    svg.innerHTML = '';
+    const W = 160, H = 64;
+    const cx = W / 2, cy = H / 2;
+
+    // 수평 기준선
+    const baseline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    baseline.setAttribute('x1', 10); baseline.setAttribute('y1', cy);
+    baseline.setAttribute('x2', W - 10); baseline.setAttribute('y2', cy);
+    baseline.setAttribute('stroke', '#c8d8f0');
+    baseline.setAttribute('stroke-width', '1');
+    baseline.setAttribute('stroke-dasharray', '4 3');
+    svg.appendChild(baseline);
+
+    // 기울기: 절대 기준 비율(val/maxVal)로 각도 결정
+    const ratio = clamp(val / maxVal, -1, 1);
+    const deg   = -ratio * 83;   // 양수=위쪽, 음수=아래쪽 (포화 시 거의 수직)
+    const rad   = deg * Math.PI / 180;
+    const len   = 55 + Math.abs(ratio) * 15;
+    const dx    = Math.cos(rad) * len;
+    const dy    = Math.sin(rad) * len;
+
+    const color = val < 0 ? '#1e8a5e' : val <= 2 ? '#1a6fd4' : val <= 4 ? '#e07b00' : '#d93025';
+
+    // 선분
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', cx - dx); line.setAttribute('y1', cy - dy);
+    line.setAttribute('x2', cx + dx); line.setAttribute('y2', cy + dy);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', '3.5');
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+
+    // 오른쪽 끝 화살표
+    const ex = cx + dx, ey = cy + dy;
+    const nx = Math.cos(rad), ny = Math.sin(rad);
+    const px = -ny, py = nx;
+    const aw = 7;
+    const arr = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    arr.setAttribute('points',
+      `${ex},${ey} ${ex - nx*aw*1.5 + px*aw},${ey - ny*aw*1.5 + py*aw} ${ex - nx*aw*1.5 - px*aw},${ey - ny*aw*1.5 - py*aw}`);
+    arr.setAttribute('fill', color);
+    svg.appendChild(arr);
+
+    // 값 라벨 (오른쪽 상단)
+    const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lbl.setAttribute('x', W - 4); lbl.setAttribute('y', 14);
+    lbl.setAttribute('text-anchor', 'end');
+    lbl.setAttribute('font-size', '11'); lbl.setAttribute('font-weight', '700');
+    lbl.setAttribute('font-family', 'monospace'); lbl.setAttribute('fill', color);
+    lbl.textContent = fmt(val) + '×';
+    svg.appendChild(lbl);
+  }
+
+  function compute() {
+    // 슬라이더에서 직접 출발 기울기(∂Loss/∂L)를 읽음
+    const grad_d = parseFloat(document.getElementById('loss-val').value);
+    // 슬라이더 id는 그대로지만 이름 재매핑: 포장(w2 슬라이더)=w₁, 배달(w1 슬라이더)=w₂
+    const w1 = parseFloat(document.getElementById('w2').value);  // 포장담당 — 요리사에 가까운 쪽
+    const w2 = parseFloat(document.getElementById('w1').value);  // 배달기사 — 고객에 가까운 쪽
+
+    // 역전파: 연쇄법칙 (고객→요리사 방향으로 w를 곱하며 전달)
+    const grad_p = grad_d * w2;   // 배달기사 → 포장담당: × w₂
+    const grad_c = grad_p * w1;   // 포장담당 → 요리사:   × w₁
+
+    document.getElementById('loss-fwd').textContent      = fmt(grad_d);
+    document.getElementById('delivery-fwd').textContent  = fmt(grad_p);   // 배달기사→포장담당: grad_d × w₂
+    document.getElementById('packing-fwd').textContent   = fmt(grad_c);   // 포장담당→요리사: grad_p × w₁
+    document.getElementById('chef-fwd').textContent      = fmt(grad_c);
+
+    // 기울기 선분
+    // 시각화 기준을 고정해 폭발 구간(예: 80 이상)에서 거의 수직으로 보이게 한다.
+    const maxVal = 80;
+    drawLine('viz-loss',     grad_d, maxVal);
+    drawLine('viz-delivery', grad_p, maxVal);
+    drawLine('viz-packing',  grad_c, maxVal);
+    drawLine('viz-chef',     grad_c, maxVal);
+
+    // 상태 표시
+    const stateEl    = document.getElementById('state-display');
+    const emojiEl    = document.getElementById('state-emoji');
+    const labelEl    = document.getElementById('state-label');
+    const subEl      = document.getElementById('state-sub');
+
+    let emoji, label, sub, bg, border;
+    if (grad_d <= -2) {
+      emoji = '🦴'; label = '음수 기울기 — 반대 방향 수정!';
+      sub   = `출발 기울기 ${fmt(grad_d)} — 눅눅함을 오히려 늘려야`;
+      bg = '#f0fff8'; border = '#1e8a5e';
+    } else if (grad_d < 0) {
+      emoji = '😬'; label = '약한 음수 기울기';
+      sub   = `출발 기울기 ${fmt(grad_d)} — 살짝 반대 방향`;
+      bg = '#f5fff9'; border = '#6dcfa8';
+    } else if (grad_d === 0) {
+      emoji = '😶'; label = '기울기 0 — 업데이트 없음!';
+      sub   = '기울기가 0이면 모든 층의 파라미터가 변하지 않아';
+      bg = '#f7f9ff'; border = 'var(--border)';
+    } else if (grad_d <= 1.5) {
+      emoji = '🙂'; label = '약한 기울기';
+      sub   = `출발 기울기 ${fmt(grad_d)} — 파라미터 소폭 조정`;
+      bg = '#eef5ff'; border = 'var(--blue)';
+    } else if (grad_d <= 3.5) {
+      emoji = '😟'; label = '중간 기울기';
+      sub   = `출발 기울기 ${fmt(grad_d)} — 파라미터 중간 조정`;
+      bg = '#fff8ee'; border = '#e07b00';
+    } else {
+      emoji = '😤'; label = '강한 기울기 — 대폭 수정!';
+      sub   = `출발 기울기 ${fmt(grad_d)} — 파라미터 대폭 조정`;
+      bg = '#fff2f1'; border = 'var(--red)';
+    }
+
+    emojiEl.textContent          = emoji;
+    labelEl.textContent          = label;
+    labelEl.style.color          = border === 'var(--border)' ? 'var(--text)' : border;
+    subEl.textContent            = sub;
+    stateEl.style.background     = bg;
+    stateEl.style.borderColor    = border;
+
+    document.getElementById('explain-box').innerHTML =
+      `출발 기울기 <strong>${fmt(grad_d)}</strong> 설정<br><br>
+      배달기사는 받은 기울기(${fmt(grad_d)})에 w₂(${fmt(w2)})를 곱해 → 포장담당에 기울기 <strong>${fmt(grad_p)}</strong> 전달<br>
+      포장담당은 받은 기울기(${fmt(grad_p)})에 w₁(${fmt(w1)})을 곱해 → 요리사에 기울기 <strong>${fmt(grad_c)}</strong> 전달<br><br>
+      ${grad_c > 0 ? '요리사는 눅눅함을 줄이는 방향으로 레시피를 수정해야 해!' : grad_c < 0 ? '요리사는 더 촉촉하게 만드는 방향으로 레시피를 수정해야 해!' : '기울기가 0 — 요리사 레시피 변화 없음!'} 🎯`;
+  }
+
+  // 프리셋
+  function applyPreset(name) {
+    const presets = {
+      normal:  { loss: 8.0, w1: 2.0,  w2: 2.0  },
+      explode: { loss: 8.0, w1: 10.0, w2: 10.0 },
+      vanish:  { loss: 8.0, w1: 0.01, w2: 0.01 },
+    };
+    const p = presets[name];
+    document.getElementById('loss-val').value   = p.loss;
+    document.getElementById('w1').value         = p.w2;   // w1 슬라이더 = w₂
+    document.getElementById('w2').value         = p.w1;   // w2 슬라이더 = w₁
+    document.getElementById('loss-val-display').textContent = p.loss.toFixed(1);
+    document.getElementById('w1-display').textContent       = p.w2.toFixed(2);
+    document.getElementById('w2-display').textContent       = p.w1.toFixed(2);
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('preset-' + name).classList.add('active');
+    compute();
+  }
+
+  ['loss-val','w1','w2'].forEach(id => {
+    const el   = document.getElementById(id);
+    const disp = document.getElementById(id + '-display');
+    el.addEventListener('input', () => {
+      const v = parseFloat(el.value);
+      disp.textContent = id === 'loss-val' ? v.toFixed(1) : v.toFixed(2);
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      compute();
+    });
+  });
+
+  compute();
+</script>
+</body>
+</html>

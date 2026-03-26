@@ -102,6 +102,7 @@
 <script>
     const xMax = 20;
     const themeColor = '#ff8c00'; // 미분값 테마색 (주황)
+    const tangentHalfSpan = 4.5;
     let tuTraceData = [];
     let muTraceData = [];
 
@@ -142,7 +143,7 @@
             datasets: [
                 { label: '탐색한 배부름 점', data: [], borderColor: '#3498db', borderWidth: 3, pointRadius: 2, pointHoverRadius: 2, fill: false, spanGaps: true, order: 3 },
                 { label: '현재 먹은 지점', data: [], backgroundColor: themeColor, pointRadius: 7, showLine: false, order: 1 },
-                { label: '추가 한 입의 느낌(기울기)', data: [], borderColor: themeColor, borderWidth: 2, pointRadius: 0, order: 2 }
+                { label: '추가 한 입의 느낌(기울기)', data: [], borderColor: themeColor, borderWidth: 3, borderDash: [7, 5], pointRadius: 0, order: 2 }
             ]
         },
         options: { ...commonOptions, scales: getAxisConfig(0, 55) }
@@ -176,6 +177,16 @@
         }
     }
 
+    // 화면 경계 안에서 현재 기울기를 더 길고 또렷하게 보여주는 선분 생성
+    function getTangentSegment(x, y, slope) {
+        const leftX = Math.max(0, x - tangentHalfSpan);
+        const rightX = Math.min(xMax, x + tangentHalfSpan);
+        return [
+            { x: leftX, y: y + slope * (leftX - x) },
+            { x: rightX, y: y + slope * (rightX - x) }
+        ];
+    }
+
     function updateCharts(x) {
         x = Math.max(0, Math.min(xMax, x));
         const y = f(x);
@@ -187,7 +198,7 @@
         pushUniquePoint(tuTraceData, {x: x, y: y});
         tuChart.data.datasets[0].data = tuTraceData;
         tuChart.data.datasets[1].data = [{x: x, y: y}];
-        tuChart.data.datasets[2].data = [{x: x-3, y: y - slope*3}, {x: x+3, y: y + slope*3}];
+        tuChart.data.datasets[2].data = getTangentSegment(x, y, slope);
         tuChart.update('none');
 
         // 오른쪽: 기분 변화(도함수) 흔적 기록
