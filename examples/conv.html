@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>합성곱 패턴 탐정</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f0f4f8;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --panel: #ffffff;
+  --border: #cbd5e1;
+  --accent: #2563eb;
+  --accent-light: #eff6ff;
+  --accent-mid: #93c5fd;
+  --green: #059669;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 16px;
+  height: 100vh;
+  overflow: hidden;          /* 스크롤 없이 한 화면에 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── HEADER ── */
+header {
+  background: #0f172a;
+  padding: 12px 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+header::after {
+  content:''; position:absolute; right:0; top:0; bottom:0; width:200px;
+  background: repeating-linear-gradient(90deg, transparent, transparent 3px,
+    rgba(255,255,255,0.03) 3px, rgba(255,255,255,0.03) 6px);
+  pointer-events:none;
+}
+.badge {
+  font-family:'IBM Plex Mono', monospace;
+  font-size:11px; font-weight:700; letter-spacing:2.5px;
+  color:#0f172a; background:#93c5fd;
+  padding:3px 10px; border-radius:3px; text-transform:uppercase; flex-shrink:0;
+}
+h1 { font-size:20px; font-weight:900; color:#fff; letter-spacing:-0.5px; flex-shrink:0; }
+h1 em { color:#60a5fa; font-style:normal; }
+
+/* ── KERNEL PICKER (horizontal strip) ── */
+.picker-bar {
+  background: var(--panel);
+  border-bottom: 1.5px solid var(--border);
+  padding: 10px 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.picker-label {
+  font-family:'IBM Plex Mono', monospace;
+  font-size:11px; font-weight:700; letter-spacing:2px;
+  text-transform:uppercase; color:var(--muted); white-space:nowrap; flex-shrink:0;
+}
+
+.kbtn {
+  display:flex; align-items:center; gap:8px;
+  padding:7px 14px;
+  border:2px solid var(--border); border-radius:8px;
+  background:var(--bg); cursor:pointer; transition:all 0.12s;
+  flex-shrink:0; white-space:nowrap;
+}
+.kbtn:hover { border-color:var(--accent); background:var(--accent-light); }
+.kbtn.active { border-color:var(--accent); background:var(--accent-light); }
+
+.kbtn-preview { display:grid; gap:1px; flex-shrink:0; }
+.kbtn-cell { width:7px; height:7px; }
+
+.kbtn-name {
+  font-family:'IBM Plex Mono', monospace;
+  font-size:13px; font-weight:700; color:var(--ink);
+}
+
+/* ── MAIN BODY ── */
+.body-area {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 52px 1fr;
+  align-items: stretch;
+  padding: 16px 28px;
+  gap: 0;
+  min-height: 0;
+}
+
+/* ── PANELS ── */
+.col-panel {
+  background:var(--panel); border:1.5px solid var(--border);
+  border-radius:12px; padding:16px 18px;
+  display:flex; flex-direction:column; gap:10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.col-head { display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+.col-title {
+  font-family:'IBM Plex Mono', monospace;
+  font-size:11px; font-weight:700; letter-spacing:2px;
+  text-transform:uppercase; color:var(--muted);
+}
+.col-subtitle { font-size:16px; font-weight:700; color:var(--ink); line-height:1.3; }
+
+/* canvas wrapper — fills remaining space */
+.canvas-wrap {
+  flex: 1; min-height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+canvas {
+  display: block; cursor: crosshair; border-radius: 6px;
+  max-width: 100%; max-height: 100%;
+}
+
+/* ── TOOL ROW ── */
+.tool-row { display:flex; gap:6px; flex-wrap:wrap; flex-shrink:0; }
+
+.tbtn {
+  font-family:'IBM Plex Mono', monospace;
+  font-size:13px; font-weight:600;
+  padding:6px 13px; border-radius:7px;
+  border:1.5px solid var(--border);
+  background:var(--bg); cursor:pointer; transition:all 0.12s; color:var(--ink);
+}
+.tbtn:hover { border-color:var(--accent); color:var(--accent); }
+.tbtn.active-tool { border-color:var(--accent); color:var(--accent); background:var(--accent-light); }
+.tbtn.primary {
+  background:var(--accent); border-color:var(--accent); color:#fff;
+  font-size:14px; padding:8px 18px;
+}
+.tbtn.primary:hover { background:#1d4ed8; }
+
+/* ── PLAY ROW ── */
+.play-row {
+  display:flex; gap:8px; align-items:center; flex-shrink:0; flex-wrap:wrap;
+}
+.spd-wrap {
+  display:flex; align-items:center; gap:6px; margin-left:auto;
+  font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--muted);
+}
+input[type=range] {
+  -webkit-appearance:none; width:80px; height:4px; border-radius:2px;
+  background:var(--border); outline:none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+  background:var(--accent); cursor:pointer;
+}
+
+/* ── STEP BAR ── */
+.step-bar { display:flex; gap:3px; flex-wrap:wrap; flex-shrink:0; }
+.step-dot { width:7px; height:7px; border-radius:50%; background:var(--border); transition:background 0.15s; }
+.step-dot.done { background:var(--accent-mid); }
+.step-dot.current { background:var(--accent); transform:scale(1.4); }
+
+/* ── FEATURE SIDE ── */
+.feat-explain {
+  font-size:16px; color:var(--muted); line-height:1.6; flex-shrink:0;
+}
+.feat-explain strong { color:var(--accent); }
+
+/* ── INSIGHT BAR ── */
+.insight-bar {
+  font-size:16px; line-height:1.6; flex-shrink:0;
+  background:var(--accent-light); border:1.5px solid var(--accent-mid);
+  border-radius:8px; padding:10px 14px;
+  display:flex; gap:10px; align-items:flex-start;
+}
+.insight-bar strong { color:var(--accent); }
+
+/* ── CONNECTOR ── */
+.connector {
+  display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:6px; align-self: center;
+}
+.connector svg { opacity:0.45; }
+.connector-label {
+  font-family:'IBM Plex Mono', monospace;
+  font-size:11px; color:var(--muted); text-align:center; line-height:1.5;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">CNN</div>
+  <h1>합성곱은 <em>패턴 탐정</em>이다</h1>
+</header>
+
+<!-- KERNEL PICKER BAR -->
+<div class="picker-bar">
+  <span class="picker-label">커널 선택</span>
+  <div id="kernelPicker" style="display:flex;gap:8px;"></div>
+</div>
+
+<!-- MAIN -->
+<div class="body-area">
+
+  <!-- INPUT PANEL -->
+  <div class="col-panel">
+    <div class="col-head">
+      <div class="col-title">입력 이미지</div>
+      <div class="col-subtitle">클릭·드래그로 패턴을 그리세요</div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="inputCanvas"></canvas>
+    </div>
+
+    <div class="tool-row">
+      <button class="tbtn active-tool" id="drawModeBtn" onclick="setDrawMode('draw')">✏️ 그리기</button>
+      <button class="tbtn" id="eraseModeBtn" onclick="setDrawMode('erase')">⬜ 지우기</button>
+      <button class="tbtn" onclick="clearInput()">전체 지우기</button>
+      <button class="tbtn" onclick="loadPreset()">예시 불러오기</button>
+    </div>
+
+    <div class="play-row">
+      <button class="tbtn primary" id="playBtn" onclick="togglePlay()">▶ 슬라이딩 시작</button>
+      <button class="tbtn" onclick="resetSlide()">↺ 리셋</button>
+      <div class="spd-wrap">
+        속도
+        <input type="range" id="speedSlider" min="1" max="10" value="8">
+      </div>
+    </div>
+
+    <div class="step-bar" id="stepBar"></div>
+
+    <div class="insight-bar">
+      <span style="flex-shrink:0">💡</span>
+      <div id="insightText">커널이 찾는 패턴과 입력이 비슷한 곳 → <strong>내적값이 크다</strong> → 특징맵이 밝아진다.</div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR -->
+  <div class="connector">
+    <svg width="34" height="34" viewBox="0 0 34 34">
+      <path d="M4 17L26 17M19 9L27 17L19 25" stroke="#2563eb" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="connector-label">합성곱<br>연산</div>
+  </div>
+
+  <!-- FEATURE MAP PANEL -->
+  <div class="col-panel">
+    <div class="col-head">
+      <div class="col-title">특징맵 (Feature Map)</div>
+      <div class="col-subtitle">밝을수록 커널 패턴과 일치하는 곳</div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="featCanvas"></canvas>
+    </div>
+
+    <div class="feat-explain" id="featExplain">
+      슬라이딩을 시작하면 특징맵이 채워집니다.
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── KERNELS ──────────────────────────────
+const KERNELS = {
+  eye: {
+    name: '눈(◎) 검출', size: 5,
+    data: [[0,1,1,1,0],[1,0,0,0,1],[1,0,1,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+    insight: '<strong>동그라미 안에 점</strong>을 그리면 그 위치가 특징맵에서 밝게 반응합니다.',
+    preset: 'eye',
+  },
+  cross: {
+    name: '십자(+) 검출', size: 5,
+    data: [[0,0,1,0,0],[0,0,1,0,0],[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0]],
+    insight: '<strong>십자 모양</strong>을 그려보세요. 그 위치의 특징맵이 환하게 켜집니다.',
+    preset: 'cross',
+  },
+  corner: {
+    name: 'ㄱ자 모서리', size: 5,
+    data: [[1,1,1,0,0],[1,0,0,0,0],[1,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]],
+    insight: '그림 왼쪽 위에 <strong>ㄱ자</strong>를 그리면 그 위치가 밝아집니다.',
+    preset: 'corner',
+  },
+  diagonal: {
+    name: '사선(╲) 검출', size: 5,
+    data: [[1,0,0,0,0],[0,1,0,0,0],[0,0,1,0,0],[0,0,0,1,0],[0,0,0,0,1]],
+    insight: '<strong>대각선</strong>을 그으면 그 위치에서 특징맵이 반응합니다.',
+    preset: 'diagonal',
+  },
+  dot: {
+    name: '점(·) 검출', size: 3,
+    data: [[0,0,0],[0,1,0],[0,0,0]],
+    insight: '점 하나를 찍으면 특징맵이 <strong>입력과 동일</strong>하게 나옵니다.',
+    preset: 'dot',
+  },
+};
+
+// ── GRID SIZE ─────────────────────────────
+const IW = 20, IH = 20;
+let INPUT = Array.from({length:IH}, ()=>Array(IW).fill(0));
+
+// ── PRESETS ───────────────────────────────
+const PRESETS = {
+  eye: () => {
+    clearInput();
+    const sr=6, sc=6;
+    [[0,1],[0,2],[0,3],[1,0],[1,4],[2,0],[2,2],[2,4],[3,0],[3,4],[4,1],[4,2],[4,3]]
+      .forEach(([dr,dc])=>{ if(sr+dr<IH&&sc+dc<IW) INPUT[sr+dr][sc+dc]=1; });
+  },
+  cross: () => {
+    clearInput();
+    const mid=Math.floor(IW/2);
+    for(let r=0;r<IH;r++) INPUT[r][mid]=1;
+    for(let c=0;c<IW;c++) INPUT[Math.floor(IH/2)][c]=1;
+  },
+  corner: () => {
+    clearInput();
+    for(let c=2;c<8;c++) INPUT[2][c]=1;
+    for(let r=2;r<8;r++) INPUT[r][2]=1;
+  },
+  diagonal: () => {
+    clearInput();
+    for(let i=0;i<14;i++) if(i<IH&&i<IW) INPUT[i][i]=1;
+  },
+  dot: () => {
+    clearInput();
+    [[4,4],[4,13],[10,8],[14,4],[13,14],[7,16]].forEach(([r,c])=>{ if(r<IH&&c<IW) INPUT[r][c]=1; });
+  },
+};
+
+// ── STATE ─────────────────────────────────
+let currentKernelKey = 'eye';
+let featureMap = [];
+let step = 0, playing = false, animId = null, lastTime = 0;
+let drawMode = 'draw', isMouseDown = false;
+
+// ── CANVAS ───────────────────────────────
+// Cell sizes — will be computed to fit available space
+let CELL = 26, FCELL = 36;
+
+const inputC = document.getElementById('inputCanvas');
+const featC  = document.getElementById('featCanvas');
+const iCtx   = inputC.getContext('2d');
+const fCtx   = featC.getContext('2d');
+
+function computeCellSizes() {
+  const inputWrap = inputC.closest('.canvas-wrap');
+  const featWrap  = featC.closest('.canvas-wrap');
+  if (!inputWrap || !featWrap) return;
+
+  const iW = inputWrap.clientWidth  - 4;
+  const iH = inputWrap.clientHeight - 4;
+  CELL = Math.max(10, Math.floor(Math.min(iW / IW, iH / IH)));
+
+  const k = KERNELS[currentKernelKey];
+  const ow = IW - k.size + 1;
+  const oh = IH - k.size + 1;
+  const fW = featWrap.clientWidth  - 4;
+  const fH = featWrap.clientHeight - 4;
+  FCELL = Math.max(10, Math.floor(Math.min(fW / ow, fH / oh)));
+}
+
+function setupCanvases() {
+  computeCellSizes();
+  inputC.width  = IW * CELL;
+  inputC.height = IH * CELL;
+  const k = KERNELS[currentKernelKey];
+  featC.width  = (IW - k.size + 1) * FCELL;
+  featC.height = (IH - k.size + 1) * FCELL;
+}
+
+// ── KERNEL PICKER ─────────────────────────
+function buildKernelPicker() {
+  const el = document.getElementById('kernelPicker');
+  el.innerHTML = '';
+  Object.entries(KERNELS).forEach(([key, k]) => {
+    const btn = document.createElement('button');
+    btn.className = 'kbtn' + (key === currentKernelKey ? ' active' : '');
+    btn.dataset.key = key;
+
+    const preview = document.createElement('div');
+    preview.className = 'kbtn-preview';
+    preview.style.gridTemplateColumns = `repeat(${k.size}, 7px)`;
+    k.data.flat().forEach(v => {
+      const c = document.createElement('div');
+      c.className = 'kbtn-cell';
+      c.style.background = v === 1 ? '#2563eb' : '#e2e8f0';
+      preview.appendChild(c);
+    });
+
+    const name = document.createElement('div');
+    name.className = 'kbtn-name';
+    name.textContent = k.name;
+
+    btn.appendChild(preview);
+    btn.appendChild(name);
+    btn.onclick = () => selectKernel(key);
+    el.appendChild(btn);
+  });
+}
+
+function selectKernel(key) {
+  currentKernelKey = key;
+  document.querySelectorAll('.kbtn').forEach(b => b.classList.toggle('active', b.dataset.key === key));
+  resetSlide();
+  setupCanvases();
+  buildStepBar();
+  updateInsight();
+  drawInput(); drawFeature();
+}
+
+// ── INSIGHT ───────────────────────────────
+function updateInsight() {
+  document.getElementById('insightText').innerHTML =
+    KERNELS[currentKernelKey].insight;
+}
+
+// ── STEP BAR ─────────────────────────────
+function buildStepBar() {
+  const k = KERNELS[currentKernelKey];
+  const total = (IH-k.size+1)*(IW-k.size+1);
+  const bar = document.getElementById('stepBar');
+  bar.innerHTML = '';
+  for(let i=0;i<total;i++){
+    const d = document.createElement('div');
+    d.className='step-dot'; d.id=`dot-${i}`;
+    bar.appendChild(d);
+  }
+}
+function updateStepBar() {
+  const k = KERNELS[currentKernelKey];
+  const total=(IH-k.size+1)*(IW-k.size+1);
+  for(let i=0;i<total;i++){
+    const d=document.getElementById(`dot-${i}`);
+    if(!d) continue;
+    d.className='step-dot'+(i<step-1?' done':i===step-1?' current':'');
+  }
+}
+
+// ── DRAW INPUT ────────────────────────────
+function drawInput(hlRow=-1, hlCol=-1) {
+  const k = KERNELS[currentKernelKey];
+  iCtx.clearRect(0,0,inputC.width,inputC.height);
+  for(let r=0;r<IH;r++){
+    for(let c=0;c<IW;c++){
+      const inK = hlRow>=0 && r>=hlRow && r<hlRow+k.size && c>=hlCol && c<hlCol+k.size;
+      const val = INPUT[r][c];
+      iCtx.fillStyle = inK
+        ? (val===1 ? '#2563eb' : 'rgba(37,99,235,0.09)')
+        : (val===1 ? '#0f172a' : '#f1f5f9');
+      iCtx.fillRect(c*CELL+1, r*CELL+1, CELL-2, CELL-2);
+      iCtx.strokeStyle = inK ? 'rgba(37,99,235,0.3)' : '#e2e8f0';
+      iCtx.lineWidth = 1;
+      iCtx.strokeRect(c*CELL+.5, r*CELL+.5, CELL-1, CELL-1);
+    }
+  }
+  if(hlRow>=0){
+    iCtx.strokeStyle='#2563eb'; iCtx.lineWidth=2.5;
+    iCtx.shadowColor='#2563eb'; iCtx.shadowBlur=10;
+    iCtx.strokeRect(hlCol*CELL+1, hlRow*CELL+1, k.size*CELL-2, k.size*CELL-2);
+    iCtx.shadowBlur=0;
+  }
+}
+
+// ── DRAW FEATURE MAP ──────────────────────
+function drawFeature(hlRow=-1, hlCol=-1) {
+  const k = KERNELS[currentKernelKey];
+  const oh=IH-k.size+1, ow=IW-k.size+1;
+  fCtx.clearRect(0,0,featC.width,featC.height);
+  const vals=featureMap.flat().filter(v=>v!=null);
+  const fmin=vals.length?Math.min(...vals):0;
+  const fmax=vals.length?Math.max(...vals):1;
+
+  for(let r=0;r<oh;r++){
+    for(let c=0;c<ow;c++){
+      const v=featureMap[r]?.[c];
+      const isAct=r===hlRow&&c===hlCol;
+      if(v!=null){
+        const n=fmax===fmin?0.5:(v-fmin)/(fmax-fmin);
+        const rv=Math.round(n*56+(1-n)*15);
+        const gv=Math.round(n*189+(1-n)*23);
+        const bv=Math.round(n*248+(1-n)*100);
+        fCtx.fillStyle=`rgb(${rv},${gv},${bv})`;
+      } else {
+        fCtx.fillStyle='#f1f5f9';
+      }
+      fCtx.fillRect(c*FCELL+1, r*FCELL+1, FCELL-2, FCELL-2);
+      fCtx.strokeStyle=isAct?'#0ea5e9':'#e2e8f0';
+      fCtx.lineWidth=isAct?2.5:1;
+      if(isAct){fCtx.shadowColor='#0ea5e9';fCtx.shadowBlur=10;}
+      fCtx.strokeRect(c*FCELL+.5, r*FCELL+.5, FCELL-1, FCELL-1);
+      fCtx.shadowBlur=0;
+      if(v!=null){
+        const n=fmax===fmin?0.5:(v-fmin)/(fmax-fmin);
+        fCtx.fillStyle=n>0.45?'#fff':'#0f172a';
+        fCtx.font=`bold ${Math.max(11,FCELL*0.28)|0}px 'IBM Plex Mono',monospace`;
+        fCtx.textAlign='center'; fCtx.textBaseline='middle';
+        fCtx.fillText(Math.round(v), c*FCELL+FCELL/2, r*FCELL+FCELL/2);
+      }
+    }
+  }
+}
+
+// ── COMPUTATION ───────────────────────────
+function computeConv(row, col) {
+  const k=KERNELS[currentKernelKey];
+  let sum=0;
+  for(let kr=0;kr<k.size;kr++)
+    for(let kc=0;kc<k.size;kc++)
+      sum+=INPUT[row+kr][col+kc]*k.data[kr][kc];
+  return sum;
+}
+
+function updateFeatExplain(row, col, result) {
+  const k=KERNELS[currentKernelKey];
+  const maxMatch=k.data.flat().filter(v=>v===1).length;
+  let matchCount=0;
+  for(let kr=0;kr<k.size;kr++)
+    for(let kc=0;kc<k.size;kc++)
+      if(k.data[kr][kc]===1 && INPUT[row+kr][col+kc]===1) matchCount++;
+  const pct=maxMatch>0?Math.round(matchCount/maxMatch*100):0;
+  document.getElementById('featExplain').innerHTML=
+    `현재 위치: <strong>${matchCount}/${maxMatch}칸 일치 (${pct}%)</strong> → 값 = ${result}<br>`+
+    `밝은 픽셀 = 커널과 많이 일치하는 곳`;
+}
+
+// ── STEP / ANIMATE ────────────────────────
+function doStep() {
+  const k=KERNELS[currentKernelKey];
+  const oh=IH-k.size+1, ow=IW-k.size+1;
+  if(step>=oh*ow){
+    playing=false;
+    document.getElementById('playBtn').textContent='▶ 다시 시작';
+    drawInput(); drawFeature(); return;
+  }
+  const row=Math.floor(step/ow), col=step%ow;
+  const result=computeConv(row,col);
+  if(!featureMap[row]) featureMap[row]=[];
+  featureMap[row][col]=result;
+  drawInput(row,col);
+  drawFeature(row,col);
+  updateFeatExplain(row,col,result);
+  updateStepBar();
+  step++;
+}
+
+function getInterval() {
+  // slider 1~10 → 400ms ~ 50ms
+  const s=parseInt(document.getElementById('speedSlider').value);
+  return Math.round(400 - (s-1)*(350/9));
+}
+
+function animate(ts) {
+  if(!playing) return;
+  if(ts-lastTime > getInterval()){ lastTime=ts; doStep(); }
+  animId=requestAnimationFrame(animate);
+}
+
+function togglePlay() {
+  const k=KERNELS[currentKernelKey];
+  if(step>=(IH-k.size+1)*(IW-k.size+1)){ resetSlide(); return; }
+  playing=!playing;
+  document.getElementById('playBtn').textContent=playing?'⏸ 일시정지':'▶ 계속';
+  if(playing) animId=requestAnimationFrame(animate);
+  else cancelAnimationFrame(animId);
+}
+
+function resetSlide() {
+  playing=false; cancelAnimationFrame(animId); step=0;
+  const k=KERNELS[currentKernelKey];
+  featureMap=Array.from({length:IH-k.size+1},()=>Array(IW-k.size+1).fill(null));
+  document.getElementById('playBtn').textContent='▶ 슬라이딩 시작';
+  document.getElementById('featExplain').textContent='슬라이딩을 시작하면 특징맵이 채워집니다.';
+  buildStepBar(); drawInput(); drawFeature();
+}
+
+// ── DRAW MODE ─────────────────────────────
+function setDrawMode(mode) {
+  drawMode=mode;
+  document.getElementById('drawModeBtn').classList.toggle('active-tool', mode==='draw');
+  document.getElementById('eraseModeBtn').classList.toggle('active-tool', mode==='erase');
+}
+
+function getCellFromEvent(e) {
+  const rect=inputC.getBoundingClientRect();
+  const scaleX=inputC.width/rect.width, scaleY=inputC.height/rect.height;
+  const x=((e.clientX??e.touches?.[0]?.clientX)-rect.left)*scaleX;
+  const y=((e.clientY??e.touches?.[0]?.clientY)-rect.top)*scaleY;
+  return {r:Math.floor(y/CELL), c:Math.floor(x/CELL)};
+}
+function paintCell(e) {
+  const {r,c}=getCellFromEvent(e);
+  if(r<0||r>=IH||c<0||c>=IW) return;
+  INPUT[r][c]=drawMode==='draw'?1:0;
+  resetSlide(); drawInput();
+}
+
+inputC.addEventListener('mousedown', e=>{ isMouseDown=true; paintCell(e); });
+inputC.addEventListener('mousemove', e=>{ if(isMouseDown) paintCell(e); });
+window.addEventListener('mouseup', ()=>isMouseDown=false);
+inputC.addEventListener('touchstart', e=>{ e.preventDefault(); paintCell(e); });
+inputC.addEventListener('touchmove',  e=>{ e.preventDefault(); paintCell(e); });
+
+function clearInput() {
+  INPUT=Array.from({length:IH},()=>Array(IW).fill(0));
+  resetSlide(); drawInput();
+}
+function loadPreset() {
+  PRESETS[KERNELS[currentKernelKey].preset]?.();
+  resetSlide(); drawInput();
+}
+
+// ── INIT ──────────────────────────────────
+// Wait for layout to settle before measuring
+window.addEventListener('load', () => {
+  buildKernelPicker();
+  setupCanvases();
+  buildStepBar();
+  updateInsight();
+  setDrawMode('draw');
+  PRESETS.eye();
+  drawInput();
+  drawFeature();
+});
+
+window.addEventListener('resize', () => {
+  setupCanvases();
+  drawInput();
+  drawFeature();
+});
+</script>
+</body>
+</html>
