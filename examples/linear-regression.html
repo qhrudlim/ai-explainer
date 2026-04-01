@@ -15,6 +15,9 @@
         .control-group label { width: 100px; font-weight: 600; }
         input[type=range] { flex-grow: 1; }
         .stats-num { font-family: monospace; font-size: 1.1em; color: #007bff; width: 60px; text-align: right; }
+        .button-row { text-align: center; margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .toggle-row { display: flex; justify-content: center; gap: 18px; margin-bottom: 14px; flex-wrap: wrap; color: #444; font-size: 0.95em; }
+        .toggle-row label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
         
         .info-panel { display: flex; justify-content: space-around; margin-top: 10px; border-top: 1px solid #eee; padding-top: 15px; }
         .info-item { text-align: center; }
@@ -28,8 +31,6 @@
 <body>
 
     <h1>Linear Regression Metrics Visualizer</h1>
-    <p style="color: #666; margin-bottom: 25px;">데이터 5개에 대해 $w$와 $b$를 조절하며 오차(MSE)와 결정계수($R^2$)의 변화를 관찰하세요.</p>
-
     <div class="container">
         <div class="canvas-wrapper">
             <canvas id="regCanvas" width="400" height="400"></canvas>
@@ -40,8 +41,16 @@
             <div class="label">MSE Cost & Gradient (w)</div>
         </div>
         <div class="canvas-wrapper">
+            <canvas id="mseBCanvas" width="350" height="400"></canvas>
+            <div class="label">MSE Cost & Gradient (b)</div>
+        </div>
+        <div class="canvas-wrapper" id="r2Panel" style="display: none;">
             <canvas id="r2Canvas" width="350" height="400"></canvas>
             <div class="label">R-Squared Score (w)</div>
+        </div>
+        <div class="canvas-wrapper" id="gradPanel" style="display: none;">
+            <canvas id="gradCanvas" width="350" height="400"></canvas>
+            <div class="label">Cost Surface & Gradient Vector (w,b)</div>
         </div>
     </div>
 
@@ -53,12 +62,23 @@
         </div>
         <div class="control-group">
             <label>절편 (b)</label>
-            <input type="range" id="bRange" min="0" max="400" step="1" value="200">
+            <input type="range" id="bRange" min="0" max="400" step="0.1" value="200">
             <span id="bVal" class="stats-num">200</span>
         </div>
+        <div class="control-group">
+            <label>학습률 (lr)</label>
+            <input type="range" id="lrRange" min="0.00001" max="0.005" step="0.00001" value="0.0005">
+            <span id="lrVal" class="stats-num">5.0e-4</span>
+        </div>
+
+        <div class="toggle-row">
+            <label><input type="checkbox" id="showR2Toggle"> R^2 차트 보이기</label>
+            <label><input type="checkbox" id="showGradToggle"> Cost Surface 차트 보이기</label>
+        </div>
         
-        <div style="text-align: center; margin-bottom: 20px;">
+        <div class="button-row">
             <button onclick="resetData()">데이터 새로 생성 (Linear Trend)</button>
+            <button onclick="gradientStep()">한 스텝 경사하강 (w,b)</button>
         </div>
 
         <div class="info-panel">
@@ -70,24 +90,46 @@
                 <span class="info-label">R-Squared ($R^2$)</span>
                 <span id="r2Val" class="info-value" style="color: #27ae60;">0</span>
             </div>
+            <div class="info-item">
+                <span class="info-label">Gradient ($dJ/dw$)</span>
+                <span id="gradWVal" class="info-value" style="color: #c0392b;">0</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Gradient ($dJ/db$)</span>
+                <span id="gradBVal" class="info-value" style="color: #8e44ad;">0</span>
+            </div>
         </div>
     </div>
 
 <script>
     const regCtx = document.getElementById('regCanvas').getContext('2d');
     const mseCtx = document.getElementById('mseCanvas').getContext('2d');
+    const mseBCtx = document.getElementById('mseBCanvas').getContext('2d');
     const r2Ctx = document.getElementById('r2Canvas').getContext('2d');
+    const gradCtx = document.getElementById('gradCanvas').getContext('2d');
 
     const wRange = document.getElementById('wRange');
     const bRange = document.getElementById('bRange');
+    const lrRange = document.getElementById('lrRange');
+    const showR2Toggle = document.getElementById('showR2Toggle');
+    const showGradToggle = document.getElementById('showGradToggle');
+    const r2Panel = document.getElementById('r2Panel');
+    const gradPanel = document.getElementById('gradPanel');
     const wVal = document.getElementById('wVal');
     const bVal = document.getElementById('bVal');
+    const lrVal = document.getElementById('lrVal');
     const mseValDisplay = document.getElementById('mseVal');
     const r2ValDisplay = document.getElementById('r2Val');
+    const gradWValDisplay = document.getElementById('gradWVal');
+    const gradBValDisplay = document.getElementById('gradBVal');
 
     let data = [];
     let ssTot = 0; // Total Sum of Squares (y평균과의 차이 제곱합)
     const nPoints = 5;
+    const W_STEP_SCALE = 0.2;
+    const B_STEP_SCALE = 80;
+    const MAX_STEP_W = 0.35;
+    const MAX_STEP_B = 12;
 
     function resetData() {
         data = [];
@@ -98,7 +140,7 @@
         for (let i = 0; i < nPoints; i++) {
             let x = 60 + (i * 70); 
             let x_c = x - 200;
-            let y = targetW * x_c + (400 - targetB) + (Math.random() - 0.5) * 60;
+            let y = targetW * x_c + targetB + (Math.random() - 0.5) * 60;
             y = Math.max(20, Math.min(380, y));
             data.push({ x, y });
             sumY += y;
@@ -114,7 +156,7 @@
     function calculateMetrics(w, b) {
         let ssRes = 0;
         data.forEach(p => {
-            let predY = w * (p.x - 200) + (400 - b);
+            let predY = w * (p.x - 200) + b;
             ssRes += Math.pow(p.y - predY, 2);
         });
         const mse = ssRes / nPoints;
@@ -126,36 +168,61 @@
         let grad = 0;
         data.forEach(p => {
             let x_c = p.x - 200;
-            let predY = w * x_c + (400 - b);
+            let predY = w * x_c + b;
             grad += 2 * (predY - p.y) * x_c;
         });
         return grad / nPoints;
     }
 
+    function getGradientB(w, b) {
+        let grad = 0;
+        data.forEach(p => {
+            let predY = w * (p.x - 200) + b;
+            grad += 2 * (predY - p.y);
+        });
+        return grad / nPoints;
+    }
+
+    function updateChartVisibility() {
+        r2Panel.style.display = showR2Toggle.checked ? 'flex' : 'none';
+        gradPanel.style.display = showGradToggle.checked ? 'flex' : 'none';
+    }
+
     function draw() {
         const w = parseFloat(wRange.value);
         const b = parseFloat(bRange.value);
+        const lr = parseFloat(lrRange.value);
         wVal.innerText = w.toFixed(2);
-        bVal.innerText = b;
+        bVal.innerText = b.toFixed(1);
+        lrVal.innerText = lr.toExponential(1);
 
         const { mse, r2 } = calculateMetrics(w, b);
+        const gradW = getGradientW(w, b);
+        const gradB = getGradientB(w, b);
         mseValDisplay.innerText = Math.floor(mse).toLocaleString();
         r2ValDisplay.innerText = r2.toFixed(3);
+        gradWValDisplay.innerText = gradW.toFixed(2);
+        gradBValDisplay.innerText = gradB.toFixed(2);
 
         // --- 1. 회귀 플롯 ---
         regCtx.clearRect(0, 0, 400, 400);
+        regCtx.save();
+        regCtx.setTransform(1, 0, 0, -1, 0, 400);
+
         data.forEach(p => {
-            let predY = w * (p.x - 200) + (400 - b);
+            let predY = w * (p.x - 200) + b;
             let err = p.y - predY;
             regCtx.fillStyle = 'rgba(231, 76, 60, 0.2)';
-            regCtx.fillRect(p.x, p.y, -err, -err);
+            regCtx.fillRect(p.x, p.y, err, -err);
             regCtx.fillStyle = '#333';
             regCtx.beginPath(); regCtx.arc(p.x, p.y, 5, 0, Math.PI*2); regCtx.fill();
         });
+
         regCtx.strokeStyle = '#3498db'; regCtx.lineWidth = 2;
         regCtx.beginPath();
-        regCtx.moveTo(0, w*(0-200)+(400-b)); regCtx.lineTo(400, w*(400-200)+(400-b));
+        regCtx.moveTo(0, w * (0 - 200) + b); regCtx.lineTo(400, w * (400 - 200) + b);
         regCtx.stroke();
+        regCtx.restore();
 
         // --- 2. MSE 곡선 ---
         const W_SCALE = 35; 
@@ -169,42 +236,197 @@
         mseCtx.stroke();
         
         let curX = (w+5)*W_SCALE; let curY = 380 - (mse * MSE_SCALE);
-        let gradW = getGradientW(w, b);
         let vSlope = (-gradW * MSE_SCALE) / W_SCALE; // 시각적 접선 보정
         
         mseCtx.strokeStyle = '#e74c3c'; mseCtx.beginPath();
         mseCtx.moveTo(curX-30, curY - vSlope*30); mseCtx.lineTo(curX+30, curY + vSlope*30); mseCtx.stroke();
         mseCtx.fillStyle = '#e74c3c'; mseCtx.beginPath(); mseCtx.arc(curX, curY, 5, 0, Math.PI*2); mseCtx.fill();
 
-        // --- 3. R-Squared 곡선 ---
-        r2Ctx.clearRect(0, 0, 350, 400);
-        // 가이드선 (R2=1, R2=0)
-        r2Ctx.setLineDash([5, 5]); r2Ctx.strokeStyle = '#ddd';
-        r2Ctx.beginPath(); r2Ctx.moveTo(0, 50); r2Ctx.lineTo(350, 50); r2Ctx.stroke(); // R2=1 line
-        r2Ctx.beginPath(); r2Ctx.moveTo(0, 350); r2Ctx.lineTo(350, 350); r2Ctx.stroke(); // R2=0 line
-        r2Ctx.setLineDash([]);
-
-        r2Ctx.strokeStyle = '#ccc';
-        r2Ctx.beginPath();
-        for(let tw=-5; tw<=5; tw+=0.1) {
-            let px = (tw+5)*W_SCALE;
-            let val = calculateMetrics(tw, b).r2;
-            // R2 시각화: 1.0은 y=50, 0.0은 y=350으로 매핑
-            let py = 350 - (val * 300); 
-            if (py > 400) py = 399; // 캔버스 하단 제한
-            tw === -5 ? r2Ctx.moveTo(px, py) : r2Ctx.lineTo(px, py);
+        // --- 3. MSE-b 곡선 ---
+        const B_SCALE = 350 / 400;
+        mseBCtx.clearRect(0, 0, 350, 400);
+        mseBCtx.strokeStyle = '#eee'; mseBCtx.beginPath();
+        for (let tb = 0; tb <= 400; tb += 4) {
+            let px = tb * B_SCALE;
+            let py = 380 - (calculateMetrics(w, tb).mse * MSE_SCALE);
+            tb === 0 ? mseBCtx.moveTo(px, py) : mseBCtx.lineTo(px, py);
         }
-        r2Ctx.stroke();
+        mseBCtx.stroke();
 
-        let curR2Y = 350 - (r2 * 300);
-        r2Ctx.fillStyle = '#27ae60';
-        r2Ctx.beginPath(); r2Ctx.arc(curX, curR2Y, 6, 0, Math.PI*2); r2Ctx.fill();
-        r2Ctx.fillText("R²=1", 5, 45);
-        r2Ctx.fillText("R²=0", 5, 345);
+        let curBX = b * B_SCALE; let curBY = 380 - (mse * MSE_SCALE);
+        let vBSlope = (-gradB * MSE_SCALE) / B_SCALE; // dMSE/db를 캔버스 기울기로 변환
+
+        mseBCtx.strokeStyle = '#8e44ad'; mseBCtx.beginPath();
+        mseBCtx.moveTo(curBX - 30, curBY - vBSlope * 30); mseBCtx.lineTo(curBX + 30, curBY + vBSlope * 30); mseBCtx.stroke();
+        mseBCtx.fillStyle = '#8e44ad'; mseBCtx.beginPath(); mseBCtx.arc(curBX, curBY, 5, 0, Math.PI * 2); mseBCtx.fill();
+
+        // --- 4. R-Squared 곡선 ---
+        if (showR2Toggle.checked) {
+            r2Ctx.clearRect(0, 0, 350, 400);
+            // 가이드선 (R2=1, R2=0)
+            r2Ctx.setLineDash([5, 5]); r2Ctx.strokeStyle = '#ddd';
+            r2Ctx.beginPath(); r2Ctx.moveTo(0, 50); r2Ctx.lineTo(350, 50); r2Ctx.stroke(); // R2=1 line
+            r2Ctx.beginPath(); r2Ctx.moveTo(0, 350); r2Ctx.lineTo(350, 350); r2Ctx.stroke(); // R2=0 line
+            r2Ctx.setLineDash([]);
+
+            r2Ctx.strokeStyle = '#ccc';
+            r2Ctx.beginPath();
+            for(let tw=-5; tw<=5; tw+=0.1) {
+                let px = (tw+5)*W_SCALE;
+                let val = calculateMetrics(tw, b).r2;
+                // R2 시각화: 1.0은 y=50, 0.0은 y=350으로 매핑
+                let py = 350 - (val * 300); 
+                if (py > 400) py = 399; // 캔버스 하단 제한
+                tw === -5 ? r2Ctx.moveTo(px, py) : r2Ctx.lineTo(px, py);
+            }
+            r2Ctx.stroke();
+
+            let curR2Y = 350 - (r2 * 300);
+            r2Ctx.fillStyle = '#27ae60';
+            r2Ctx.beginPath(); r2Ctx.arc(curX, curR2Y, 6, 0, Math.PI*2); r2Ctx.fill();
+            r2Ctx.fillText("R²=1", 5, 45);
+            r2Ctx.fillText("R²=0", 5, 345);
+        }
+
+        // --- 5. (w,b) 비용면 + Gradient 벡터 ---
+        if (showGradToggle.checked) {
+            drawGradientSurface(w, b, gradW, gradB);
+        }
+    }
+
+    function drawGradientSurface(w, b, gradW, gradB) {
+        const width = 350;
+        const height = 400;
+        const pad = 30;
+        const innerW = width - pad * 2;
+        const innerH = height - pad * 2;
+        const cellsX = 26;
+        const cellsY = 22;
+        const LOW_PERCENTILE = 0.08;
+        const HIGH_PERCENTILE = 0.92;
+        const COLOR_GAMMA = 0.6;
+
+        const toCanvasX = (wVal) => pad + ((wVal + 5) / 10) * innerW;
+        const toCanvasY = (bVal) => height - pad - (bVal / 400) * innerH;
+
+        const surfaceSamples = [];
+        for (let gx = 0; gx < cellsX; gx++) {
+            for (let gy = 0; gy < cellsY; gy++) {
+                const sampleW = -5 + (gx / (cellsX - 1)) * 10;
+                const sampleB = (gy / (cellsY - 1)) * 400;
+                const sampleMse = calculateMetrics(sampleW, sampleB).mse;
+                surfaceSamples.push(sampleMse);
+            }
+        }
+
+        surfaceSamples.sort((a, bVal) => a - bVal);
+        const lowIdx = Math.floor((surfaceSamples.length - 1) * LOW_PERCENTILE);
+        const highIdx = Math.floor((surfaceSamples.length - 1) * HIGH_PERCENTILE);
+        let minMse = surfaceSamples[lowIdx];
+        let maxMse = surfaceSamples[Math.max(highIdx, lowIdx + 1)];
+
+        gradCtx.clearRect(0, 0, width, height);
+        const span = Math.max(maxMse - minMse, 1e-9);
+        for (let gx = 0; gx < cellsX - 1; gx++) {
+            for (let gy = 0; gy < cellsY - 1; gy++) {
+                const sampleW = -5 + (gx / (cellsX - 1)) * 10;
+                const sampleB = (gy / (cellsY - 1)) * 400;
+                const sampleMse = calculateMetrics(sampleW, sampleB).mse;
+                const clipped = Math.min(maxMse, Math.max(minMse, sampleMse));
+                const normalized = (clipped - minMse) / span;
+                const t = Math.pow(normalized, COLOR_GAMMA);
+                const hue = 205 - t * 175;
+                const lightness = 94 - t * 42;
+                gradCtx.fillStyle = `hsl(${hue}, 70%, ${lightness}%)`;
+
+                const x0 = toCanvasX(sampleW);
+                const x1 = toCanvasX(-5 + ((gx + 1) / (cellsX - 1)) * 10);
+                const y1 = toCanvasY(sampleB);
+                const y0 = toCanvasY(((gy + 1) / (cellsY - 1)) * 400);
+                gradCtx.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+            }
+        }
+
+        gradCtx.strokeStyle = '#666';
+        gradCtx.lineWidth = 1;
+        gradCtx.strokeRect(pad, pad, innerW, innerH);
+
+        const curX = toCanvasX(w);
+        const curY = toCanvasY(b);
+
+        const pxGradW = gradW * (innerW / 10);
+        const pxGradB = -gradB * (innerH / 400);
+        const gradNorm = Math.hypot(pxGradW, pxGradB);
+        if (gradNorm > 1e-9) {
+            const length = 42;
+            const upX = curX + (pxGradW / gradNorm) * length;
+            const upY = curY + (pxGradB / gradNorm) * length;
+            const downX = curX - (pxGradW / gradNorm) * length;
+            const downY = curY - (pxGradB / gradNorm) * length;
+
+            drawArrow(gradCtx, curX, curY, upX, upY, '#d35400');
+            drawArrow(gradCtx, curX, curY, downX, downY, '#16a085');
+            gradCtx.fillStyle = '#333';
+            gradCtx.font = '12px sans-serif';
+            gradCtx.fillText('+grad', upX + 4, upY - 2);
+            gradCtx.fillText('-grad', downX + 4, downY - 2);
+        }
+
+        gradCtx.fillStyle = '#111';
+        gradCtx.beginPath();
+        gradCtx.arc(curX, curY, 5, 0, Math.PI * 2);
+        gradCtx.fill();
+
+        gradCtx.fillStyle = '#555';
+        gradCtx.font = '12px sans-serif';
+        gradCtx.fillText('w', width - 18, height - 10);
+        gradCtx.fillText('b', 8, 16);
+    }
+
+    function drawArrow(ctx, fromX, fromY, toX, toY, color) {
+        const headLen = 8;
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(toX, toY);
+        ctx.lineTo(toX - headLen * Math.cos(angle - Math.PI / 6), toY - headLen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(toX - headLen * Math.cos(angle + Math.PI / 6), toY - headLen * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function gradientStep() {
+        const w = parseFloat(wRange.value);
+        const b = parseFloat(bRange.value);
+        const lr = parseFloat(lrRange.value);
+
+        const gradW = getGradientW(w, b);
+        const gradB = getGradientB(w, b);
+
+        // Balance per-parameter sensitivity while preventing one-click overshoot.
+        const deltaW = Math.max(-MAX_STEP_W, Math.min(MAX_STEP_W, lr * gradW * W_STEP_SCALE));
+        const deltaB = Math.max(-MAX_STEP_B, Math.min(MAX_STEP_B, lr * gradB * B_STEP_SCALE));
+        const nextW = Math.max(-5, Math.min(5, w - deltaW));
+        const nextB = Math.max(0, Math.min(400, b - deltaB));
+
+        wRange.value = nextW.toFixed(2);
+        bRange.value = nextB.toFixed(1);
+        draw();
     }
 
     wRange.addEventListener('input', draw);
     bRange.addEventListener('input', draw);
+    lrRange.addEventListener('input', draw);
+    showR2Toggle.addEventListener('change', () => { updateChartVisibility(); draw(); });
+    showGradToggle.addEventListener('change', () => { updateChartVisibility(); draw(); });
+    updateChartVisibility();
     resetData();
 </script>
 </body>
