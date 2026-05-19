@@ -36,11 +36,11 @@
             <div id="angle" class="value">0°</div>
         </div>
         <div class="card">
-            <div class="label">내적 값 (cosθ)</div>
+            <div class="label">cosθ 유사도</div>
             <div id="dotProduct" class="value">1.00</div>
         </div>
         <div class="card">
-            <div class="label">전진 기여도(추진 효율)</div>
+            <div class="label">내적 - 전진 기여도</div>
             <div id="efficiency" class="value">100%</div>
         </div>
     </div>
@@ -117,8 +117,10 @@
         const magB = Math.sqrt(boatDir.x**2 + boatDir.y**2) || 1;
         const magW = Math.sqrt(windVec.x**2 + windVec.y**2) || 1;
         
+        const rawDot = boatDir.x * windVec.x + boatDir.y * windVec.y;
+
         // 내적 공식: (A · B) / (|A|*|B|) = cos(θ)
-        const dot = (boatDir.x * windVec.x + boatDir.y * windVec.y) / (magB * magW);
+        const dot = rawDot / (magB * magW);
         const angleRad = Math.acos(Math.max(-1, Math.min(1, dot)));
         
         // 1. 배의 진행 방향 벡터 (파란색)
@@ -150,7 +152,7 @@
         // 4. 배 그리기
         drawSailingBoat(boatPos.x, boatPos.y, boatDir.x, boatDir.y);
         
-        updateUI(dot, angleRad);
+        updateUI(dot, rawDot, angleRad);
     }
 
     function drawArrow(fromx, fromy, tox, toy, color, label, isDashed=false, width=3) {
@@ -192,14 +194,11 @@
         }
     }
 
-    function updateUI(dot, angleRad) {
+    function updateUI(dot, rawDot, angleRad) {
         const angleDeg = Math.round(angleRad * (180 / Math.PI));
         document.getElementById('angle').innerText = `${angleDeg}°`;
         document.getElementById('dotProduct').innerText = dot.toFixed(2);
-        
-        // 추진 효율은 내적값이 양수일 때만 의미 있게 표시
-        const eff = Math.round(dot * 100);
-        document.getElementById('efficiency').innerText = `${eff}%`;
+        document.getElementById('efficiency').innerText = rawDot.toFixed(2);
         
         const statusEl = document.getElementById('status');
         if (dot > 0.2) {
